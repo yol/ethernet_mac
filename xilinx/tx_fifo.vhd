@@ -39,7 +39,7 @@ architecture RTL of tx_fifo is
 	--signal size_empty : std_ulogic := '0';
 
 begin
-	tx_data_fifo_inst : entity work.tx_data_fifo
+	tx_data_fifo_inst : entity work.ethernet_mac_tx_fifo_xilinx
 		port map(
 			rst    => reset_i,
 			wr_clk => clock_i,

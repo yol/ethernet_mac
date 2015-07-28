@@ -4,7 +4,7 @@ use ieee.numeric_std.all;
 
 library ethernet_mac;
 use ethernet_mac.ethernet_types.all;
-use ethernet_mac.eth_framing_types.all;
+use ethernet_mac.framing_types.all;
 use ethernet_mac.crc32.all;
 use ethernet_mac.utility.all;
 

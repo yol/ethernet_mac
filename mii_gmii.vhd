@@ -133,6 +133,8 @@ begin
 	tx_clock_o <= clock_tx;
 	rx_clock_o <= clock_rx;
 
+-- Synchronizer: use no SR extract, ASYNC_REG
+
 	-- Bring signals from clock_125_i to clock_rx clock domain
 	clock_125_to_clock_rx : process(clock_rx)
 	begin

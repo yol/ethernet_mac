@@ -85,7 +85,7 @@ begin
 		generic map(
 			DDR_ALIGNMENT => "C0",      -- Sets output alignment to "NONE", "C0", "C1" 
 			INIT          => '0',       -- Sets initial state of the Q output to '0' or '1'
-			SRTYPE        => "SYNC")   -- Specifies "SYNC" or "ASYNC" set/reset
+			SRTYPE        => "ASYNC")   -- Specifies "SYNC" or "ASYNC" set/reset
 		port map(
 			Q  => mii_tx_en_o,          -- 1-bit output data
 			C0 => clock_tx,             -- 1-bit clock input
@@ -101,7 +101,7 @@ begin
 		generic map(
 			DDR_ALIGNMENT => "C0",      -- Sets output alignment to "NONE", "C0", "C1" 
 			INIT          => '0',       -- Sets initial state of the Q output to '0' or '1'
-			SRTYPE        => "SYNC")   -- Specifies "SYNC" or "ASYNC" set/reset
+			SRTYPE        => "ASYNC")   -- Specifies "SYNC" or "ASYNC" set/reset
 		port map(
 			Q  => mii_tx_er_o,          -- 1-bit output data
 			C0 => clock_tx,             -- 1-bit clock input
@@ -118,7 +118,7 @@ begin
 			generic map(
 				DDR_ALIGNMENT => "C0",  -- Sets output alignment to "NONE", "C0", "C1" 
 				INIT          => '0',   -- Sets initial state of the Q output to '0' or '1'
-				SRTYPE        => "SYNC") -- Specifies "SYNC" or "ASYNC" set/reset
+				SRTYPE        => "ASYNC") -- Specifies "SYNC" or "ASYNC" set/reset
 			port map(
 				Q  => mii_txd_o(i),     -- 1-bit output data
 				C0 => clock_tx,         -- 1-bit clock input
