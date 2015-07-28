@@ -13,4 +13,5 @@ package ethernet_types is
 	constant SPEED_1000MBPS : ethernet_speed_t := "10";
 	constant SPEED_100MBPS  : ethernet_speed_t := "01";
 	constant SPEED_10MBPS   : ethernet_speed_t := "00";
+	constant SPEED_UNSPECIFIED : ethernet_speed_t := "11";
 end package;

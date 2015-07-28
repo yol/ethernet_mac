@@ -65,7 +65,8 @@ entity ethernet_with_fifos is
 
 		-- Status
 		link_up_o              : out   std_ulogic;
-		speed_o                : out   ethernet_speed_t
+		speed_o                : out   ethernet_speed_t;
+		speed_override_i       : in    ethernet_speed_t := SPEED_UNSPECIFIED
 	);
 end entity;
 
@@ -120,7 +121,8 @@ begin
 			rx_byte_received_o     => mac_rx_byte_received,
 			rx_error_o             => mac_rx_error,
 			link_up_o              => link_up_o,
-			speed_o                => speed_o
+			speed_o                => speed_o,
+			speed_override_i       => speed_override_i
 		);
 
 	rx_memory_inst : entity ethernet_mac.rx_fifo

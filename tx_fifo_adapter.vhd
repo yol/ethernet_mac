@@ -56,7 +56,7 @@ begin
 	data_rd_en_o <= data_rd_en;
 
 	send_proc : process(reset_i, mac_tx_clock_i)
-		variable first : boolean := TRUE;
+	--		variable first : boolean := TRUE;
 	begin
 		if reset_i = '1' then
 			state           <= READ_SIZE_HIGH;
@@ -69,7 +69,7 @@ begin
 			case state is
 				when READ_SIZE_HIGH =>
 					-- Wait for FIFO nonempty
-					if data_empty_i = '0' and (data_read_count_i > 20 or first = FALSE) then
+					if data_empty_i = '0' then --and (data_read_count_i > 20 or first = FALSE) then
 						-- Read packet size high byte
 						remaining_packet_size(TX_PACKET_SIZE_BITS - 1 downto 8) <= unsigned(data_i(TX_PACKET_SIZE_BITS - 1 - 8 downto 0));
 						-- Move FIFO to next byte
@@ -95,15 +95,21 @@ begin
 				when WAIT_DATA_COUNT2 =>
 					state <= WAIT_PACKET;
 				when WAIT_PACKET =>
-					-- Wait for all data available and TX idle
-					if data_read_count_i >= remaining_packet_size and mac_tx_busy_i = '0' then
-						-- Remember the first byte
-						mac_tx_data_o   <= data_i;
-						-- Start transmission already, delay through framing is long enough to not miss the first tx_byte_sent
-						mac_tx_enable_o <= '1';
-						-- Move FIFO on to the second byte					
-						data_rd_en      <= '1';
-						state           <= WAIT_DATA_READ;
+					-- Check for obviously wrong frame size to avoid lock-up
+					if remaining_packet_size = 0 then
+						-- Try again
+						state <= READ_SIZE_HIGH;
+					else
+						-- Wait for all data available and TX idle
+						if data_read_count_i >= remaining_packet_size and mac_tx_busy_i = '0' then
+							-- Remember the first byte
+							mac_tx_data_o   <= data_i;
+							-- Start transmission already, delay through framing is long enough to not miss the first tx_byte_sent
+							mac_tx_enable_o <= '1';
+							-- Move FIFO on to the second byte					
+							data_rd_en      <= '1';
+							state           <= WAIT_DATA_READ;
+						end if;
 					end if;
 				when WAIT_DATA_READ =>
 					-- Third byte
@@ -123,7 +129,7 @@ begin
 							-- This was the last byte
 							mac_tx_enable_o <= '0';
 							state           <= READ_SIZE_HIGH;
-							first           := FALSE;
+						--first           := FALSE;
 						else
 							if data_rd_en = '1' then
 								-- The buffer is exhausted if we've supplied its value

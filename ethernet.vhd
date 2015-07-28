@@ -63,7 +63,8 @@ entity ethernet is
 
 		-- Status
 		link_up_o              : out   std_ulogic;
-		speed_o                : out   ethernet_speed_t
+		speed_o                : out   ethernet_speed_t;
+		speed_override_i       : in    ethernet_speed_t := SPEED_UNSPECIFIED
 	);
 end entity;
 
@@ -86,6 +87,7 @@ architecture rtl of ethernet is
 	signal miim_req              : std_ulogic;
 	signal miim_ack              : std_ulogic;
 	signal miim_write_enable     : std_ulogic;
+	signal miim_speed            : ethernet_speed_t;
 	signal speed_select          : ethernet_speed_t;
 	signal link_up               : std_ulogic;
 begin
@@ -94,6 +96,10 @@ begin
 	link_up_o            <= link_up;
 	speed_o              <= speed_select;
 	miim_phy_address_sig <= MIIM_PHY_ADDRESS;
+
+	with speed_override_i select speed_select <=
+		miim_speed when SPEED_UNSPECIFIED,
+		speed_override_i when others;
 
 	mii_rs_inst : entity ethernet_mac.mii_rs
 		port map(
@@ -193,7 +199,7 @@ begin
 			miim_ack_i              => miim_ack,
 			miim_we_o               => miim_write_enable,
 			link_up_o               => link_up,
-			speed_o                 => speed_select,
+			speed_o                 => miim_speed,
 			debug_fifo_we_o         => open,
 			debug_fifo_write_data_o => open
 		);

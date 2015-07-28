@@ -11,6 +11,7 @@ library ethernet_mac;
 use ethernet_mac.ethernet_types.all;
 use ethernet_mac.framing_types.all;
 use ethernet_mac.utility.all;
+use ethernet_mac.crc32.all;
 
 entity ethernet_mac_tb is
 end entity;
@@ -21,7 +22,7 @@ architecture behavioral of ethernet_mac_tb is
 	signal clock_125            : std_ulogic := '0';
 	signal clock_125_inv        : std_ulogic;
 	signal clock_125_unbuffered : std_ulogic;
-	signal reset                : std_ulogic;
+	signal reset                : std_ulogic := '1';
 	signal mii_tx_clk           : std_ulogic := '0';
 	signal mii_tx_er            : std_ulogic;
 	signal mii_tx_en            : std_ulogic;
@@ -31,11 +32,10 @@ architecture behavioral of ethernet_mac_tb is
 	signal mii_rx_dv            : std_ulogic;
 	signal mii_rxd              : std_ulogic_vector(7 downto 0);
 	signal gmii_gtx_clk         : std_ulogic;
-	signal rx_clock             : std_ulogic;
+	signal user_clock           : std_ulogic;
 	signal rx_empty             : std_ulogic;
 	signal rx_rd_en             : std_ulogic;
 	signal rx_data              : ethernet_data_t;
-	signal tx_clock             : std_ulogic;
 	signal tx_data              : ethernet_data_t;
 	signal tx_data_wr_en        : std_ulogic;
 	signal tx_data_full         : std_ulogic;
@@ -43,12 +43,27 @@ architecture behavioral of ethernet_mac_tb is
 	signal speed                : ethernet_speed_t;
 
 	-- Testbench signals
-	signal speed_internal   : ethernet_speed_t;
-	signal send_packet_req  : boolean := FALSE;
-	signal send_packet_ack  : boolean := FALSE;
-	signal send_packet_size : integer := 0;
+	signal run : boolean := TRUE;
+
+	constant MAX_PACKETS_IN_TRANSACTION : integer := 10;
+
 	type t_packet_data is array (0 to 2000) of ethernet_data_t;
-	signal send_packet_data : t_packet_data;
+	type t_packet_transaction is record
+		valid : boolean;
+		data  : t_packet_data;
+		size  : integer;
+	end record;
+	type t_packet_buffer is array (0 to MAX_PACKETS_IN_TRANSACTION - 1) of t_packet_transaction;
+
+	signal speed_override     : ethernet_speed_t;
+	signal send_packet_req    : boolean := FALSE;
+	signal send_packet_ack    : boolean := FALSE;
+	signal send_packet_buffer : t_packet_buffer;
+
+	signal receive_packet_req            : boolean := FALSE;
+	signal receive_packet_ack            : boolean := FALSE;
+	signal receive_packet_buffer         : t_packet_buffer;
+	signal receive_packet_count_expected : integer := 0;
 
 	-- Clock period definitions
 	constant clock_125_period : time := 8 ns;
@@ -60,7 +75,7 @@ architecture behavioral of ethernet_mac_tb is
 	-- Functions
 	impure function mii_rx_clk_period return time is
 	begin
-		case speed_internal is
+		case speed_override is
 			when SPEED_10MBPS =>
 				return clock_2_5_period;
 			when SPEED_100MBPS =>
@@ -68,6 +83,50 @@ architecture behavioral of ethernet_mac_tb is
 			when others =>
 				return clock_125_period;
 		end case;
+	end function;
+
+	-- Compare two packet transaction
+	function "="(left, right : in t_packet_transaction) return boolean is
+	begin
+		if left.valid /= right.valid then
+			report "Transaction validity state mismatch" severity note;
+			return FALSE;
+		elsif left.valid = TRUE then
+			-- Both are valid
+			-- Check size
+			if left.size /= right.size then
+				report "Transaction size mismatch" severity note;
+				return FALSE;
+			end if;
+			-- Check data
+			for i in 0 to left.size - 1 loop
+				if left.data(i) /= right.data(i) then
+					report "Transaction data mismatch at index " & integer'image(i) severity note;
+					return FALSE;
+				end if;
+			end loop;
+			-- All good
+			return TRUE;
+		else
+			-- Both are invalid, no further check necessary
+			-- Data does not matter
+			return TRUE;
+		end if;
+	end function;
+
+	-- Compare two packet transaction buffers
+	function "="(left, right : in t_packet_buffer) return boolean is
+	begin
+		for i in t_packet_buffer'range loop
+			-- Stop when both elements are invalid (end reached)
+			exit when (not left(i).valid) and (not right(i).valid);
+			-- Compare elements
+			if not (left(i) = right(i)) then
+				report "Mismatch in buffer element " & integer'image(i) severity note;
+				return FALSE;
+			end if;
+		end loop;
+		return TRUE;
 	end function;
 
 	-- "Known good" CRC32 function for comparison from chips example project
@@ -128,8 +187,8 @@ begin
 	clock_125_unbuffered <= clock_125;
 	clock_125_inv        <= not clock_125;
 
-	rx_clock <= clock_125;
-	tx_clock <= clock_125;
+	-- Be aware of simulation mismatch because of delta-delay issues here
+	user_clock <= clock_125;
 
 	-- Instantiate component
 	ethernet_mac_inst : entity ethernet_mac.ethernet_with_fifos
@@ -155,29 +214,36 @@ begin
 			rgmii_tx_ctl_o         => open,
 			rgmii_rx_ctl_i         => '0',
 			mdc_o                  => open,
-			mdio_io                => '0',
-			rx_clock_i             => rx_clock,
+			mdio_io                => open,
+			rx_clock_i             => user_clock,
 			rx_empty_o             => rx_empty,
 			rx_rd_en_i             => rx_rd_en,
 			rx_data_o              => rx_data,
-			tx_clock_i             => tx_clock,
+			tx_clock_i             => user_clock,
 			tx_data_i              => tx_data,
 			tx_data_wr_en_i        => tx_data_wr_en,
 			tx_data_full_o         => tx_data_full,
 			link_up_o              => link_up,
-			speed_o                => speed
+			speed_o                => speed,
+			speed_override_i       => speed_override
 		);
 
 	-- Generate clocks
 	clock_125_process : process
 	begin
+		if not run then
+			wait until run;
+		end if;
 		clock_125 <= not clock_125;
 		wait for clock_125_period / 2;
 	end process;
 
 	mii_tx_clk_process : process
 	begin
-		case speed_internal is
+		if not run then
+			wait until run;
+		end if;
+		case speed_override is
 			when SPEED_10MBPS =>
 				mii_tx_clk <= not mii_tx_clk;
 				wait for clock_2_5_period / 2;
@@ -186,7 +252,7 @@ begin
 				wait for clock_25_period / 2;
 			when others =>
 				-- MII TX_CLK is inactive in 1 Gbps mode
-				wait until ((speed_internal = SPEED_10MBPS) or (speed_internal = SPEED_100MBPS));
+				wait until ((speed_override = SPEED_10MBPS) or (speed_override = SPEED_100MBPS));
 		end case;
 	end process;
 
@@ -217,7 +283,7 @@ begin
 			dv   : in std_ulogic                    := '1';
 			er   : in std_ulogic                    := '0') is
 		begin
-			if speed_internal = SPEED_1000MBPS then
+			if speed_override = SPEED_1000MBPS then
 				mii_rx_cycle(data, dv, er);
 			else
 				mii_rx_cycle("XXXX" & data(3 downto 0), dv, er);
@@ -230,89 +296,188 @@ begin
 			mii_rx_put(dv => '0', er => '0', data => open);
 		end procedure;
 
-		variable fcs : std_ulogic_vector(32 downto 0);
+		variable fcs : std_ulogic_vector(31 downto 0);
 	begin
 		while not send_packet_req loop
 			mii_rx_toggle;
+			if not run then
+				wait until run;
+			end if;
 		end loop;
 
-		-- Preamble
-		for i in 0 to 3 loop
-			mii_rx_put(PREAMBLE_DATA);
-		end loop;
-		-- SFD
-		mii_rx_put(START_FRAME_DELIMITER_DATA);
-		-- Data
-		fcs := (others => '1');
-		for i in 0 to send_packet_size - 1 loop
-			mii_rx_put(send_packet_data(i));
-			fcs := NEXTCRC32_D8(send_packet_data(i), fcs);
-		end loop;
-		-- FCS
-		mii_rx_put(fcs_output_byte(fcs, 0));
-		mii_rx_put(fcs_output_byte(fcs, 1));
-		mii_rx_put(fcs_output_byte(fcs, 2));
-		mii_rx_put(fcs_output_byte(fcs, 3));
-		-- IFG
-		for i in 0 to 11 loop
-			mii_rx_toggle;
+		for packet_i in send_packet_buffer'range loop
+			-- Stop at first invalid packet
+			exit when not send_packet_buffer(packet_i).valid;
+
+			-- Preamble
+			for i in 0 to 3 loop
+				mii_rx_put(PREAMBLE_DATA);
+			end loop;
+			-- SFD
+			mii_rx_put(START_FRAME_DELIMITER_DATA);
+			-- Data
+			fcs := (others => '1');
+			for i in 0 to send_packet_buffer(packet_i).size - 1 loop
+				mii_rx_put(send_packet_buffer(packet_i).data(i));
+				fcs := NEXTCRC32_D8(send_packet_buffer(packet_i).data(i), fcs);
+			end loop;
+			-- FCS
+			mii_rx_put(fcs_output_byte(fcs, 0));
+			mii_rx_put(fcs_output_byte(fcs, 1));
+			mii_rx_put(fcs_output_byte(fcs, 2));
+			mii_rx_put(fcs_output_byte(fcs, 3));
+			-- IFG
+			for i in 0 to 11 loop
+				mii_rx_toggle;
+			end loop;
 		end loop;
 
 		send_packet_ack <= TRUE;
-		wait until not send_packet_req;
+		while send_packet_req loop
+			mii_rx_toggle;
+		end loop;
+		send_packet_ack <= FALSE;
 	end process;
-	
+
 	-- Process for mirroring packets from the RX FIFO to the TX FIFO
-	fifo_mirror_process : process is
+	-- Clock signal need to be _identical_ 
+	fifo_mirror_process : process(user_clock) is
 	begin
-		if rising_edge(clock) then
-			bscan_uart_fifo_write_enable <= '0';
+		if rising_edge(user_clock) then
 			tx_data_wr_en <= '0';
-			--tx_size_wr_en <= '0';
-			rx_re         <= '0';
-			if reset = '1' then
-				is_receiving := FALSE;
-				recv_cnt     := 0;
-			else
-				if is_receiving then
-					rx_re <= '1';
-					if rx_empty = '0' then
-						if rx_re = '1' then
-							-- Put only sequence number on JTAG out
-							if recv_cnt >= 17 and recv_cnt <= 17 + 3 then
-								bscan_uart_fifo_write_data   <= rx_data;
-								bscan_uart_fifo_write_enable <= '1';
-							end if;
-							--if recv_cnt >= 2 then
-								tx_data_wr_en <= '1';
-								tx_data       <= rx_data;
-								-- Swap direction flag
-								if recv_cnt = 16 then
-									tx_data <= "00000001";
-								-- Replace some data
-							elsif recv_cnt >= 50 then
-								tx_data <= "10001100";
-								end if;
-							--end if;
-							recv_cnt := recv_cnt + 1;
-						end if;
-					else
---						tx_size_wr_en <= '1';
---						tx_size       <= std_ulogic_vector(to_unsigned(recv_cnt - 2, 16));
-						is_receiving  := FALSE;
-					end if;
-				else
-					recv_cnt := 0;
-					rx_re    <= '0';
-					if rx_empty = '0' then
-						is_receiving := TRUE;
-					end if;
-				end if;
+			rx_rd_en      <= '0';
+			if rx_empty = '0' then
+				rx_rd_en <= '1';
+			end if;
+
+			if rx_rd_en = '1' and rx_empty = '0' then
+				tx_data_wr_en <= '1';
+				tx_data       <= rx_data;
 			end if;
 		end if;
 	end process;
 
--- Generate reset
+	-- Process for reading the MII TX interface into a packet buffer
+	packet_receive_process : process is
+		variable current_byte : integer := 0;
+		variable data         : ethernet_data_t;
+		variable fcs          : std_ulogic_vector(31 downto 0);
 
+		procedure wait_clk is
+		begin
+			case speed_override is
+				when SPEED_10MBPS | SPEED_100MBPS =>
+					wait until rising_edge(mii_tx_clk);
+				when others =>
+					wait until rising_edge(gmii_gtx_clk);
+			end case;
+			assert mii_tx_er = '0' report "MII transmission error flag is set" severity failure;
+		end procedure;
+
+		procedure read_byte(output_byte : out ethernet_data_t) is
+		begin
+			case speed_override is
+				when SPEED_10MBPS | SPEED_100MBPS =>
+					output_byte(3 downto 0) := mii_txd(3 downto 0);
+					wait_clk;
+					assert mii_tx_en = '1' report "Frame transmission ended between byte boundaries" severity failure;
+					output_byte(7 downto 4) := mii_txd(3 downto 0);
+					wait_clk;
+				when others =>
+					output_byte := mii_txd;
+					wait_clk;
+			end case;
+		end procedure;
+
+	begin
+		wait until receive_packet_req;
+
+		for i in receive_packet_buffer'range loop
+			receive_packet_buffer(i).valid <= FALSE;
+		end loop;
+
+		for current_packet_i in 0 to receive_packet_count_expected - 1 loop
+			current_byte := 0;
+			-- Wait for beginning of frame
+			loop
+				wait_clk;
+				exit when mii_tx_en = '1';
+			end loop;
+
+			for i in 0 to 6 loop
+				read_byte(data);
+				assert data = PREAMBLE_DATA and mii_tx_en = '1' report "Packet did not start with correct preamble data" severity failure;
+			end loop;
+
+			read_byte(data);
+			assert data = START_FRAME_DELIMITER_DATA and mii_tx_en = '1' report "Packet did not start with correct preamble data or start frame delimiter" severity failure;
+
+			fcs := (others => '1');
+
+			loop
+				read_byte(data);
+				receive_packet_buffer(current_packet_i).data(current_byte) <= data;
+				current_byte                                               := current_byte + 1;
+				assert current_byte <= (MAX_FRAME_DATA_BYTES + CRC32_BYTES) report "Transmitted packet is too long" severity failure;
+				fcs := NEXTCRC32_D8(data, fcs);
+
+				-- Exit after frame end
+				exit when mii_tx_en = '0';
+			end loop;
+
+			-- Subtract FCS size
+			current_byte := current_byte - CRC32_BYTES;
+			assert current_byte >= MIN_FRAME_DATA_BYTES report "Transmitted packet is too short" severity failure;
+			-- Check FCS
+			assert fcs = CRC32_POSTINVERT_MAGIC report "FCS of transmitted packet did not match contents" severity failure;
+
+			receive_packet_buffer(current_packet_i).size  <= current_byte;
+			receive_packet_buffer(current_packet_i).valid <= TRUE;
+		--assert current_packet_i < receive_packet_buffer'high report "Too many packets were transmitted";
+		end loop;
+
+		receive_packet_ack <= TRUE;
+		wait until not receive_packet_req;
+		receive_packet_ack <= FALSE;
+	end process;
+
+	-- Main test process
+	test_process : process is
+		procedure do_send_receive is
+		begin
+			send_packet_req    <= TRUE;
+			receive_packet_req <= TRUE;
+			wait until send_packet_ack and receive_packet_ack;
+			send_packet_req    <= FALSE;
+			receive_packet_req <= FALSE;
+			wait until (not send_packet_ack) and (not receive_packet_ack);
+		end procedure;
+	begin
+		reset          <= '1';
+		speed_override <= SPEED_100MBPS;
+		wait for 1000 ns;
+		reset <= '0';
+		wait for 1000 ns;
+
+		send_packet_buffer(0).valid   <= TRUE;
+		send_packet_buffer(1).valid   <= FALSE;
+		receive_packet_count_expected <= 1;
+
+		for i in t_packet_data'range loop
+			send_packet_buffer(0).data(i) <= std_ulogic_vector(to_unsigned(i mod 256, 8));
+		end loop;
+
+		for size in MIN_FRAME_DATA_BYTES to MAX_FRAME_DATA_BYTES loop
+			report "Check single frame loopback size " & integer'image(size) severity note;
+			send_packet_buffer(0).size <= size;
+			do_send_receive;
+			assert receive_packet_buffer = send_packet_buffer report "Packet loopback resulted in different packets" severity failure;
+		end loop;
+
+		report "MAC functional check ended" severity note;
+		-- Stop simulation
+		run <= FALSE;
+		wait;
+	end process;
 
 end architecture;
