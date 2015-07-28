@@ -37,14 +37,18 @@ architecture RTL of tx_fifo is
 	signal data_rd_en : std_ulogic := '0';
 	signal data_out   : std_logic_vector(ethernet_data_t'range);
 	signal data_empty : std_ulogic := '0';
-	signal data_read_count : std_logic_vector(11 downto 0);
+	signal data_read_count_lv : std_logic_vector(11 downto 0);
+	signal data_read_count : unsigned(11 downto 0);
 
 	--signal size_rd_en : std_ulogic := '0';
 	--signal size_out   : std_logic_vector(tx_size_fifo_data_t'range);
 	--signal size_empty : std_ulogic := '0';
 
 begin
-	tx_data_fifo_inst : entity work.ethernet_mac_tx_fifo_xilinx
+	-- Convert type
+	data_read_count <= unsigned(data_read_count_lv);
+	
+	tx_data_fifo_inst : entity ethernet_mac.ethernet_mac_tx_fifo_xilinx
 		port map(
 			rst    => reset_i,
 			wr_clk => clock_i,
@@ -55,7 +59,7 @@ begin
 			dout   => data_out,
 			full   => data_full_o,
 			empty  => data_empty,
-			rd_data_count => data_read_count
+			rd_data_count => data_read_count_lv
 			--empty  => open
 		);
 
@@ -83,7 +87,7 @@ begin
 			data_rd_en_o       => data_rd_en,
 			data_i             => std_ulogic_vector(data_out),
 			data_empty_i       => data_empty,
-			data_read_count_i  => unsigned(data_read_count)
+			data_read_count_i  => data_read_count
 --			size_rd_en_o       => size_rd_en,
 --			size_i             => std_ulogic_vector(size_out),
 --			size_empty_i       => size_empty

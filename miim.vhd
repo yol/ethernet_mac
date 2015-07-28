@@ -164,9 +164,10 @@ begin
 							state <= TX_DATA_STATE;
 
 						when RX_DATA_STATE | TX_DATA_STATE =>
-							data_bit_position <= data_bit_position - 1;
 							if data_bit_position = 0 then
 								state <= DONE_STATE;
+							else
+								data_bit_position <= data_bit_position - 1;								
 							end if;
 
 						when DONE_STATE =>

@@ -14,7 +14,7 @@ use unisim.vcomponents.all;
 architecture spartan_6 of mii_gmii_io is
 	signal gmii_active      : std_ulogic := '0';
 	signal clock_tx         : std_ulogic := '0';
-	--signal clock_tx_inv     : std_ulogic := '1';
+	signal clock_tx_inv     : std_ulogic := '1';
 	--signal clock_mii_rx     : std_ulogic := '0';
 	signal clock_mii_rx_io  : std_ulogic := '0';
 	signal clock_mii_rx_div : std_ulogic;
@@ -24,6 +24,7 @@ architecture spartan_6 of mii_gmii_io is
 
 begin
 	clock_tx_o <= clock_tx;
+	clock_tx_inv <= not clock_tx;
 
 	-- Infer register for gmii_active to guarantee that no hazards can reach the BUFGMUX
 	-- Needs to be synchronized to any clock that is always running, which one doesn't really matter
@@ -67,7 +68,7 @@ begin
 			SRTYPE        => "SYNC")    -- Specifies "SYNC" or "ASYNC" set/reset
 		port map(
 			Q  => gmii_gtx_clk_o,       -- 1-bit output data
-			C0 => not clock_tx,         -- 1-bit clock input
+			C0 => clock_tx_inv,         -- 1-bit clock input
 			C1 => clock_tx,             -- 1-bit clock input
 			CE => gmii_active,          -- 1-bit clock enable input
 			D0 => '1',                  -- 1-bit data input (associated with C0)
@@ -94,7 +95,7 @@ begin
 		port map(
 			Q  => mii_tx_en_o,          -- 1-bit output data
 			C0 => clock_tx,             -- 1-bit clock input
-			C1 => not clock_tx,         -- 1-bit clock input
+			C1 => clock_tx_inv,         -- 1-bit clock input
 			CE => '1',                  -- 1-bit clock enable input
 			D0 => int_mii_tx_en_i,      -- 1-bit data input (associated with C0)
 			D1 => int_mii_tx_en_i,      -- 1-bit data input (associated with C1)
@@ -110,7 +111,7 @@ begin
 		port map(
 			Q  => mii_tx_er_o,          -- 1-bit output data
 			C0 => clock_tx,             -- 1-bit clock input
-			C1 => not clock_tx,         -- 1-bit clock input
+			C1 => clock_tx_inv,         -- 1-bit clock input
 			CE => '1',                  -- 1-bit clock enable input
 			D0 => int_mii_tx_er_i,      -- 1-bit data input (associated with C0)
 			D1 => int_mii_tx_er_i,      -- 1-bit data input (associated with C1)
@@ -127,7 +128,7 @@ begin
 			port map(
 				Q  => mii_txd_o(i),     -- 1-bit output data
 				C0 => clock_tx,         -- 1-bit clock input
-				C1 => not clock_tx,     -- 1-bit clock input
+				C1 => clock_tx_inv,     -- 1-bit clock input
 				CE => '1',              -- 1-bit clock enable input
 				D0 => int_mii_txd_i(i), -- 1-bit data input (associated with C0)
 				D1 => int_mii_txd_i(i), -- 1-bit data input (associated with C1)

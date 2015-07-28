@@ -115,8 +115,8 @@ architecture rtl of miim_control is
 	);
 
 	signal init_done          : boolean                             := FALSE;
-	signal reset_wait_counter : natural range 0 to RESET_WAIT_TICKS := 0;
-	signal poll_wait_counter  : natural range 0 to POLL_WAIT_TICKS;
+	signal reset_wait_counter : natural range 0 to RESET_WAIT_TICKS + 1 := 0;
+	signal poll_wait_counter  : natural range 0 to POLL_WAIT_TICKS + 1;
 
 begin
 	miim_register_address_o <= register_address;
