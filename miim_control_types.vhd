@@ -6,9 +6,9 @@
 library ieee;
 use ieee.std_logic_1164.all;
 
-library ethernet_mac;
-use ethernet_mac.ethernet_types.all;
-use ethernet_mac.miim_types.all;
+
+use work.ethernet_types.all;
+use work.miim_types.all;
 
 package miim_control_types is
 	subtype control_register_speed_t is std_ulogic_vector(1 downto 0);

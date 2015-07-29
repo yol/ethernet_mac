@@ -7,11 +7,11 @@ library ieee;
 use ieee.std_logic_1164.all;
 use ieee.numeric_std.all;
 
-library ethernet_mac;
-use ethernet_mac.ethernet_types.all;
-use ethernet_mac.framing_types.all;
-use ethernet_mac.utility.all;
-use ethernet_mac.crc32.all;
+
+use work.ethernet_types.all;
+use work.framing_types.all;
+use work.utility.all;
+use work.crc32.all;
 
 entity ethernet_mac_tb is
 end entity;
@@ -20,27 +20,27 @@ architecture behavioral of ethernet_mac_tb is
 
 	-- ethernet_with_fifos signals
 	signal clock_125            : std_ulogic := '0';
-	signal clock_125_inv        : std_ulogic;
-	signal clock_125_unbuffered : std_ulogic;
+	signal clock_125_inv        : std_ulogic := '1';
+	signal clock_125_unbuffered : std_ulogic := '0';
 	signal reset                : std_ulogic := '1';
 	signal mii_tx_clk           : std_ulogic := '0';
-	signal mii_tx_er            : std_ulogic;
-	signal mii_tx_en            : std_ulogic;
-	signal mii_txd              : std_ulogic_vector(7 downto 0);
+	signal mii_tx_er            : std_ulogic := '0';
+	signal mii_tx_en            : std_ulogic := '0';
+	signal mii_txd              : std_ulogic_vector(7 downto 0) := (others => '0');
 	signal mii_rx_clk           : std_ulogic := '0';
-	signal mii_rx_er            : std_ulogic;
-	signal mii_rx_dv            : std_ulogic;
-	signal mii_rxd              : std_ulogic_vector(7 downto 0);
-	signal gmii_gtx_clk         : std_ulogic;
-	signal user_clock           : std_ulogic;
-	signal rx_empty             : std_ulogic;
-	signal rx_rd_en             : std_ulogic;
-	signal rx_data              : ethernet_data_t;
-	signal tx_data              : ethernet_data_t;
-	signal tx_data_wr_en        : std_ulogic;
-	signal tx_data_full         : std_ulogic;
-	signal link_up              : std_ulogic;
-	signal speed                : ethernet_speed_t;
+	signal mii_rx_er            : std_ulogic := '0';
+	signal mii_rx_dv            : std_ulogic := '0';
+	signal mii_rxd              : std_ulogic_vector(7 downto 0) := (others => '0');
+	signal gmii_gtx_clk         : std_ulogic := '0';
+	signal user_clock           : std_ulogic := '0';
+	signal rx_empty             : std_ulogic := '0';
+	signal rx_rd_en             : std_ulogic := '0';
+	signal rx_data              : ethernet_data_t := (others => '0');
+	signal tx_data              : ethernet_data_t := (others => '0');
+	signal tx_data_wr_en        : std_ulogic := '0';
+	signal tx_data_full         : std_ulogic := '0';
+	signal link_up              : std_ulogic := '0';
+	signal speed                : ethernet_speed_t := (others => '0');
 
 	-- Test configuration
 	constant TEST_THOROUGH : boolean := FALSE;
@@ -51,7 +51,8 @@ architecture behavioral of ethernet_mac_tb is
 	constant MAX_PACKETS_IN_TRANSACTION : integer := 10;
 
 	-- Data array length is a bit on the large side so we can send jumbo frames
-	type t_packet_data is array (0 to 33000) of ethernet_data_t;
+	--type t_packet_data is array (0 to 33000) of ethernet_data_t;
+	type t_packet_data is array (0 to 60) of ethernet_data_t;
 	type t_packet_transaction is record
 		valid : boolean;
 		data  : t_packet_data;
@@ -59,7 +60,7 @@ architecture behavioral of ethernet_mac_tb is
 	end record;
 	type t_packet_buffer is array (0 to MAX_PACKETS_IN_TRANSACTION - 1) of t_packet_transaction;
 
-	signal speed_override     : ethernet_speed_t;
+	signal speed_override     : ethernet_speed_t := SPEED_1000MBPS;
 	signal send_packet_req    : boolean := FALSE;
 	signal send_packet_ack    : boolean := FALSE;
 	signal send_corrupt_data  : boolean := FALSE;
@@ -198,7 +199,7 @@ begin
 	user_clock <= clock_125;
 
 	-- Instantiate component
-	ethernet_mac_inst : entity ethernet_mac.ethernet_with_fifos(test_wrapper_spartan6)
+	ethernet_mac_inst : entity work.ethernet_with_fifos --work.test_wrapper_spartan6 
 		generic map(
 			MIIM_SPEED_REGISTER => "00000",
 			MIIM_SPEED_HIGH_BIT => 0,
@@ -421,7 +422,6 @@ begin
 			current_byte := 0;
 			-- Wait for beginning of frame
 			loop
-				report "Wait clock packet reception" severity note;
 				wait_clk;
 				-- Allow receive cancellation
 				exit packet_loop when not receive_packet_req;
@@ -618,6 +618,7 @@ begin
 			-- TODO: Check for correct FIFO function when it is filled up exactly to the last byte
 		end procedure;
 	begin
+		report "Hello" severity note;
 		reset          <= '1';
 		speed_override <= SPEED_1000MBPS;
 		wait for 1000 ns;

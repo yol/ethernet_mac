@@ -9,7 +9,7 @@ use ieee.std_logic_1164.all;
 library unisim;
 use unisim.vcomponents.all;
 
-library ethernet_mac;
+
 
 entity input_buffer is
 	generic(
@@ -33,7 +33,7 @@ architecture spartan_6 of input_buffer is
 	attribute iob of FDRE_inst : label is "FORCE";
 begin
 	delay_gen : if HAS_DELAY = TRUE generate
-		fixed_input_delay_inst : entity ethernet_mac.fixed_input_delay
+		fixed_input_delay_inst : entity work.fixed_input_delay
 			generic map(
 				IDELAY_VALUE => IDELAY_VALUE
 			)

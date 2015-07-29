@@ -7,12 +7,12 @@ library ieee;
 use ieee.std_logic_1164.all;
 use ieee.numeric_std.all;
 
-library ethernet_mac;
-use ethernet_mac.mii_types.all;
-use ethernet_mac.ethernet_types.all;
 
--- MII Reconciliation Sublayer
-entity mii_rs is
+use work.mii_types.all;
+use work.ethernet_types.all;
+
+-- MII/GMII
+entity mii_gmii is
 	port(
 		clock_125_i            : in  std_ulogic;
 		clock_125_inv_i        : in  std_ulogic;
@@ -74,7 +74,7 @@ entity mii_rs is
 	);
 end entity;
 
-architecture rtl of mii_rs is
+architecture rtl of mii_gmii is
 	type mii_gmii_tx_state_t is (
 		TX_IDLE,
 		TX_GMII,

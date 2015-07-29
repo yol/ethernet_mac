@@ -7,9 +7,9 @@ library ieee;
 use ieee.std_logic_1164.all;
 use ieee.numeric_std.all;
 
-library ethernet_mac;
-use ethernet_mac.ethernet_types.all;
-use ethernet_mac.fifo_types.all;
+
+use work.ethernet_types.all;
+use work.fifo_types.all;
 
 entity tx_fifo is
 	port(
@@ -48,7 +48,7 @@ begin
 	-- Convert type
 	data_read_count <= unsigned(data_read_count_lv);
 	
-	tx_data_fifo_inst : entity ethernet_mac.ethernet_mac_tx_fifo_xilinx
+	tx_data_fifo_inst : entity work.ethernet_mac_tx_fifo_xilinx
 		port map(
 			rst    => reset_i,
 			wr_clk => clock_i,
@@ -76,7 +76,7 @@ begin
 --			empty  => size_empty
 --		);
 
-	tx_fifo_adapter_inst : entity ethernet_mac.tx_fifo_adapter
+	tx_fifo_adapter_inst : entity work.tx_fifo_adapter
 		port map(
 			reset_i            => reset_i,
 			mac_tx_clock_i     => mac_tx_clock_i,

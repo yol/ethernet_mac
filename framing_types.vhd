@@ -6,8 +6,8 @@
 library ieee;
 use ieee.std_logic_1164.all;
 
-library ethernet_mac;
-use ethernet_mac.ethernet_types.all;
+
+use work.ethernet_types.all;
 
 package framing_types is
 

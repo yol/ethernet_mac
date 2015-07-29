@@ -6,9 +6,9 @@
 library ieee;
 use ieee.std_logic_1164.all;
 
-library ethernet_mac;
-use ethernet_mac.mii_types.all;
-use ethernet_mac.ethernet_types.all;
+
+use work.mii_types.all;
+use work.ethernet_types.all;
 
 entity mii_gmii_io is
 	port(

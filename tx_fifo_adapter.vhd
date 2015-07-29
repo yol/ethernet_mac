@@ -7,9 +7,9 @@ library ieee;
 use ieee.std_logic_1164.all;
 use ieee.numeric_std.all;
 
-library ethernet_mac;
-use ethernet_mac.ethernet_types.all;
-use ethernet_mac.fifo_types.all;
+
+use work.ethernet_types.all;
+use work.fifo_types.all;
 
 entity tx_fifo_adapter is
 	port(

@@ -7,9 +7,9 @@ library ieee;
 use ieee.std_logic_1164.all;
 use ieee.numeric_std.all;
 
-library ethernet_mac;
-use ethernet_mac.crc32.all;
-use ethernet_mac.utility.all;
+
+use work.crc32.all;
+use work.utility.all;
 
 entity crc32_tb is
 end entity;

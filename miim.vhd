@@ -6,9 +6,9 @@
 library ieee;
 use ieee.std_logic_1164.all;
 
-library ethernet_mac;
-use ethernet_mac.miim_types.all;
-use ethernet_mac.utility.all;
+
+use work.miim_types.all;
+use work.utility.all;
 
 -- MII Management Interface compliant to IEEE 802.3 clause 22
 entity miim is

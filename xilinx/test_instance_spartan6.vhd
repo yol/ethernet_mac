@@ -1,9 +1,14 @@
+-- This file is part of the ethernet_mac project.
+--
+-- For the full copyright and license information, please read the
+-- LICENSE.md file that was distributed with this source code.
+
 library ieee;
 use ieee.std_logic_1164.all;
 use ieee.numeric_std.all;
 
-library ethernet_mac;
-use ethernet_mac.ethernet_types.all;
+
+use work.ethernet_types.all;
 
 library unisim;
 use unisim.vcomponents.all;
@@ -78,7 +83,7 @@ begin
 			CLKIN_DIVIDE_BY_2     => FALSE, -- CLKIN divide by two (TRUE/FALSE)
 			CLKIN_PERIOD          => 8.0, -- Input clock period specified in nS
 			CLKOUT_PHASE_SHIFT    => "NONE", -- Output phase shift (NONE, FIXED, VARIABLE)
-			CLK_FEEDBACK          => "NONE", -- Feedback source (NONE, 1X, 2X)
+			CLK_FEEDBACK          => "1X", -- Feedback source (NONE, 1X, 2X)
 			DESKEW_ADJUST         => "SYSTEM_SYNCHRONOUS", -- SYSTEM_SYNCHRNOUS or SOURCE_SYNCHRONOUS
 			DFS_FREQUENCY_MODE    => "LOW", -- Unsupported - Do not change value
 			DLL_FREQUENCY_MODE    => "LOW", -- Unsupported - Do not change value
@@ -101,7 +106,7 @@ begin
 			LOCKED   => locked,       -- 1-bit output: DCM_SP Lock Output
 			PSDONE   => open,           -- 1-bit output: Phase shift done output
 			STATUS   => open,           -- 8-bit output: DCM_SP status output
-			CLKFB    => '0', -- 1-bit input: Clock feedback input
+			CLKFB    => clock_125_unbuffered, -- 1-bit input: Clock feedback input
 			CLKIN    => clock_125_i,    -- 1-bit input: Clock input
 			DSSEN    => '0',            -- 1-bit input: Unsupported, specify to GND.
 			PSCLK    => '0',            -- 1-bit input: Phase shift clock input

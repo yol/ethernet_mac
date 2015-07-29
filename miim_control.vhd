@@ -7,10 +7,10 @@ library ieee;
 use ieee.std_logic_1164.ALL;
 use ieee.numeric_std.ALL;
 
-library ethernet_mac;
-use ethernet_mac.ethernet_types.ethernet_speed_t;
-use ethernet_mac.miim_types.all;
-use ethernet_mac.miim_control_types.all;
+
+use work.ethernet_types.ethernet_speed_t;
+use work.miim_types.all;
+use work.miim_control_types.all;
 
 entity miim_control is
 	generic(
@@ -133,7 +133,7 @@ begin
 				state              <= RESET_WAIT;
 				after_ack_state    <= DEBUG_DONE;
 				link_up_o          <= '0';
-				speed_o            <= ethernet_mac.ethernet_types.SPEED_1000MBPS;
+				speed_o            <= work.ethernet_types.SPEED_1000MBPS;
 				reset_wait_counter <= 0;
 				poll_wait_counter  <= 0;
 			else

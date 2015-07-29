@@ -6,10 +6,10 @@
 library ieee;
 use ieee.std_logic_1164.all;
 
-library ethernet_mac;
-use ethernet_mac.ethernet_types.all;
-use ethernet_mac.fifo_types.all;
-use ethernet_mac.miim_types.all;
+
+use work.ethernet_types.all;
+use work.fifo_types.all;
+use work.miim_types.all;
 
 entity ethernet_with_fifos is
 	generic(
@@ -83,7 +83,7 @@ architecture rtl of ethernet_with_fifos is
 	signal mac_rx_error         : std_ulogic      := '0';
 
 begin
-	ethernet_inst : entity ethernet_mac.ethernet
+	ethernet_inst : entity work.ethernet
 		generic map(
 			MIIM_PHY_ADDRESS      => MIIM_PHY_ADDRESS,
 			MIIM_RESET_WAIT_TICKS => MIIM_RESET_WAIT_TICKS,
@@ -125,7 +125,7 @@ begin
 			speed_override_i       => speed_override_i
 		);
 
-	rx_memory_inst : entity ethernet_mac.rx_fifo
+	rx_memory_inst : entity work.rx_fifo
 		port map(
 			clock_i                => rx_clock_i,
 			reset_i                => reset_i,
@@ -139,7 +139,7 @@ begin
 			rx_data_o              => rx_data_o
 		);
 
-	tx_fifo_inst : entity ethernet_mac.tx_fifo
+	tx_fifo_inst : entity work.tx_fifo
 		port map(
 			clock_i            => tx_clock_i,
 			reset_i            => reset_i,

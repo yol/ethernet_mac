@@ -6,10 +6,10 @@
 library ieee;
 use ieee.std_logic_1164.all;
 
-library ethernet_mac;
-use ethernet_mac.ethernet_types.all;
-use ethernet_mac.mii_types.all;
-use ethernet_mac.miim_types.all;
+
+use work.ethernet_types.all;
+use work.mii_types.all;
+use work.miim_types.all;
 
 entity ethernet is
 	generic(
@@ -101,7 +101,7 @@ begin
 		miim_speed when SPEED_UNSPECIFIED,
 		speed_override_i when others;
 
-	mii_rs_inst : entity ethernet_mac.mii_rs
+	mii_rs_inst : entity work.mii_gmii
 		port map(
 			clock_125_i            => clock_125_i,
 			clock_125_inv_i        => clock_125_inv_i,
@@ -139,7 +139,7 @@ begin
 			rx_error_o             => rs_rx_error
 		);
 
-	eth_framing_inst : entity ethernet_mac.eth_framing
+	eth_framing_inst : entity work.eth_framing
 		port map(
 			reset_i               => reset_i,
 			tx_clock_i            => rs_tx_clock,
@@ -162,7 +162,7 @@ begin
 			rs_rx_error_i         => rs_rx_error
 		);
 
-	miim_inst : entity ethernet_mac.miim
+	miim_inst : entity work.miim
 		generic map(
 			clock_divider => 50
 		)
@@ -180,7 +180,7 @@ begin
 			mdio_io            => mdio_io
 		);
 
-	miim_control_inst : entity ethernet_mac.miim_control
+	miim_control_inst : entity work.miim_control
 		generic map(
 			RESET_WAIT_TICKS => MIIM_RESET_WAIT_TICKS,
 			POLL_WAIT_TICKS  => MIIM_POLL_WAIT_TICKS,

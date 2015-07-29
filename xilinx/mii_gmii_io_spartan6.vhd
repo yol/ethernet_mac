@@ -5,8 +5,8 @@
 
 library ieee;
 use ieee.std_logic_1164.all;
-library ethernet_mac;
-use ethernet_mac.mii_types.all;
+
+use work.mii_types.all;
 
 library unisim;
 use unisim.vcomponents.all;
@@ -141,7 +141,7 @@ begin
 	-- of the clock/data offset, but the timing analyzer doesn't like it as the very big uncertainty
 	-- of both IODELAY2 instances on the paths will be added up. Maybe it works anyway. Try if
 	-- the current method fails.
-	--	mii_rx_clk_delay_inst : entity ethernet_mac.fixed_input_delay
+	--	mii_rx_clk_delay_inst : entity work.fixed_input_delay
 	--		generic map (
 	--			IDELAY_VALUE => 0
 	--		)
@@ -181,7 +181,7 @@ begin
 			I => clock_mii_rx_div       -- 1-bit input: Clock buffer input
 		);
 
-	mii_rx_dv_buffer_inst : entity ethernet_mac.input_buffer
+	mii_rx_dv_buffer_inst : entity work.input_buffer
 		generic map(
 			HAS_DELAY    => TRUE,
 			IDELAY_VALUE => MII_RX_INPUT_DELAY
@@ -192,7 +192,7 @@ begin
 			clock_i  => clock_mii_rx_io
 		);
 
-	mii_rx_er_buffer_inst : entity ethernet_mac.input_buffer
+	mii_rx_er_buffer_inst : entity work.input_buffer
 		generic map(
 			HAS_DELAY    => TRUE,
 			IDELAY_VALUE => MII_RX_INPUT_DELAY
@@ -204,7 +204,7 @@ begin
 		);
 
 	mii_rxd_buffer_generate : for i in mii_rxd_i'range generate
-		mii_rxd_buffer_inst : entity ethernet_mac.input_buffer
+		mii_rxd_buffer_inst : entity work.input_buffer
 			generic map(
 				HAS_DELAY    => TRUE,
 				IDELAY_VALUE => MII_RX_INPUT_DELAY

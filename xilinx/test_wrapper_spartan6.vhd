@@ -1,12 +1,17 @@
+-- This file is part of the ethernet_mac project.
+--
+-- For the full copyright and license information, please read the
+-- LICENSE.md file that was distributed with this source code.
+
 library ieee;
 use ieee.std_logic_1164.all;
 use ieee.numeric_std.all;
 
-library ethernet_mac;
-use ethernet_mac.ethernet_types.all;
-use ethernet_mac.miim_types.all;
 
-entity ethernet_with_fifos is
+use work.ethernet_types.all;
+use work.miim_types.all;
+
+entity test_wrapper_spartan6 is
 	generic(
 		MIIM_PHY_ADDRESS      : phy_address_t := "00000";
 		MIIM_RESET_WAIT_TICKS : natural := 0;
@@ -54,7 +59,7 @@ entity ethernet_with_fifos is
 	);
 end entity;
 
-architecture test_wrapper_spartan6 of ethernet_with_fifos is
+architecture behavioral of test_wrapper_spartan6 is
 	signal mii_txd : std_logic_vector(7 downto 0);
 	signal rx_data : std_logic_vector(7 downto 0);
 	signal speed : std_logic_vector(1 downto 0);
