@@ -7,7 +7,6 @@ library ieee;
 use ieee.std_logic_1164.all;
 use ieee.numeric_std.all;
 
-
 use work.ethernet_types.all;
 use work.framing_types.all;
 use work.utility.all;
@@ -19,28 +18,28 @@ end entity;
 architecture behavioral of ethernet_mac_tb is
 
 	-- ethernet_with_fifos signals
-	signal clock_125            : std_ulogic := '0';
-	signal clock_125_inv        : std_ulogic := '1';
-	signal clock_125_unbuffered : std_ulogic := '0';
-	signal reset                : std_ulogic := '1';
-	signal mii_tx_clk           : std_ulogic := '0';
-	signal mii_tx_er            : std_ulogic := '0';
-	signal mii_tx_en            : std_ulogic := '0';
+	signal clock_125            : std_ulogic                    := '0';
+	signal clock_125_inv        : std_ulogic                    := '1';
+	signal clock_125_unbuffered : std_ulogic                    := '0';
+	signal reset                : std_ulogic                    := '1';
+	signal mii_tx_clk           : std_ulogic                    := '0';
+	signal mii_tx_er            : std_ulogic                    := '0';
+	signal mii_tx_en            : std_ulogic                    := '0';
 	signal mii_txd              : std_ulogic_vector(7 downto 0) := (others => '0');
-	signal mii_rx_clk           : std_ulogic := '0';
-	signal mii_rx_er            : std_ulogic := '0';
-	signal mii_rx_dv            : std_ulogic := '0';
+	signal mii_rx_clk           : std_ulogic                    := '0';
+	signal mii_rx_er            : std_ulogic                    := '0';
+	signal mii_rx_dv            : std_ulogic                    := '0';
 	signal mii_rxd              : std_ulogic_vector(7 downto 0) := (others => '0');
-	signal gmii_gtx_clk         : std_ulogic := '0';
-	signal user_clock           : std_ulogic := '0';
-	signal rx_empty             : std_ulogic := '0';
-	signal rx_rd_en             : std_ulogic := '0';
-	signal rx_data              : ethernet_data_t := (others => '0');
-	signal tx_data              : ethernet_data_t := (others => '0');
-	signal tx_data_wr_en        : std_ulogic := '0';
-	signal tx_data_full         : std_ulogic := '0';
-	signal link_up              : std_ulogic := '0';
-	signal speed                : ethernet_speed_t := (others => '0');
+	signal gmii_gtx_clk         : std_ulogic                    := '0';
+	signal user_clock           : std_ulogic                    := '0';
+	signal rx_empty             : std_ulogic                    := '0';
+	signal rx_rd_en             : std_ulogic                    := '0';
+	signal rx_data              : ethernet_data_t               := (others => '0');
+	signal tx_data              : ethernet_data_t               := (others => '0');
+	signal tx_data_wr_en        : std_ulogic                    := '0';
+	signal tx_data_full         : std_ulogic                    := '0';
+	signal link_up              : std_ulogic                    := '0';
+	signal speed                : ethernet_speed_t              := (others => '0');
 
 	-- Test configuration
 	constant TEST_THOROUGH : boolean := FALSE;
@@ -51,8 +50,9 @@ architecture behavioral of ethernet_mac_tb is
 	constant MAX_PACKETS_IN_TRANSACTION : integer := 10;
 
 	-- Data array length is a bit on the large side so we can send jumbo frames
-	--type t_packet_data is array (0 to 33000) of ethernet_data_t;
-	type t_packet_data is array (0 to 60) of ethernet_data_t;
+	type t_packet_data is array (0 to 10000) of ethernet_data_t;
+	--type t_packet_data is array (0 to 1050) of ethernet_data_t;
+	--type t_packet_data is array (0 to 60) of ethernet_data_t;
 	type t_packet_transaction is record
 		valid : boolean;
 		data  : t_packet_data;
@@ -61,9 +61,9 @@ architecture behavioral of ethernet_mac_tb is
 	type t_packet_buffer is array (0 to MAX_PACKETS_IN_TRANSACTION - 1) of t_packet_transaction;
 
 	signal speed_override     : ethernet_speed_t := SPEED_1000MBPS;
-	signal send_packet_req    : boolean := FALSE;
-	signal send_packet_ack    : boolean := FALSE;
-	signal send_corrupt_data  : boolean := FALSE;
+	signal send_packet_req    : boolean          := FALSE;
+	signal send_packet_ack    : boolean          := FALSE;
+	signal send_corrupt_data  : boolean          := FALSE;
 	signal send_packet_buffer : t_packet_buffer;
 
 	signal receive_packet_req            : boolean := FALSE;
@@ -72,6 +72,12 @@ architecture behavioral of ethernet_mac_tb is
 	signal receive_packet_count_expected : integer := 0;
 
 	signal mac_mirror_run : boolean := TRUE;
+
+	type t_mirror_state is (
+		MIRROR_IDLE,
+		MIRROR_READ
+	);
+	signal mirror_state : t_mirror_state := MIRROR_IDLE;
 
 	-- Clock period definitions
 	constant clock_125_period : time := 8 ns;
@@ -353,29 +359,40 @@ begin
 		end loop;
 
 		send_packet_ack <= TRUE;
-		report "Done sending" severity note;
+		--report "Done sending" severity note;
 		while send_packet_req loop
 			mii_rx_toggle;
 		end loop;
 		send_packet_ack <= FALSE;
 	end process;
 
+	fifo_mirror_out : process(mirror_state, rx_empty, tx_data_full, mac_mirror_run, rx_data)
+	begin
+		tx_data_wr_en <= '0' after 1 ns;
+		rx_rd_en <= '0' after 1 ns;
+		tx_data <= (others => '0') after 1 ns;
+		if mac_mirror_run then
+			tx_data <= rx_data after 1 ns;
+			tx_data_wr_en      <= not rx_empty and not tx_data_full after 1 ns;
+			rx_rd_en           <= not rx_empty and not tx_data_full after 1 ns;
+		end if;
+	end process;
+
 	-- Process for mirroring packets from the RX FIFO to the TX FIFO
 	-- Clock signals need to be _identical_ 
-	fifo_mirror_process : process(user_clock) is
+	fifo_mirror_process : process(user_clock)
 	begin
 		if rising_edge(user_clock) and mac_mirror_run then
-			tx_data_wr_en <= '0';
-			rx_rd_en      <= '0';
-			if rx_empty = '0' then
-				rx_rd_en <= '1';
-			end if;
-
-			if rx_rd_en = '1' and rx_empty = '0' then
-				report "Mirror" severity note;
-				tx_data_wr_en <= '1';
-				tx_data       <= rx_data;
-			end if;
+--			case mirror_state is
+--				when MIRROR_IDLE =>
+--					if rx_empty = '0' and tx_data_full = '0' then
+--						mirror_state <= MIRROR_READ;
+--					end if;
+--				when MIRROR_READ =>
+--					if tx_data_full = '1' or rx_empty = '1' then
+--						mirror_state <= MIRROR_IDLE;
+--					end if;
+--			end case;
 		end if;
 	end process;
 
@@ -414,6 +431,8 @@ begin
 	begin
 		wait until receive_packet_req;
 
+		--report "Start receiver" severity note;
+
 		for i in receive_packet_buffer'range loop
 			receive_packet_buffer(i).valid <= FALSE;
 		end loop;
@@ -427,7 +446,7 @@ begin
 				exit packet_loop when not receive_packet_req;
 				exit when mii_tx_en = '1';
 			end loop;
-			
+
 			report "Start packet reception" severity note;
 
 			for i in 0 to 6 loop
@@ -444,7 +463,7 @@ begin
 				read_byte(data);
 				receive_packet_buffer(current_packet_i).data(current_byte) <= data;
 				current_byte                                               := current_byte + 1;
-				assert current_byte <= (MAX_FRAME_DATA_BYTES + CRC32_BYTES) report "Transmitted packet is too long" severity failure;
+				assert current_byte <= t_packet_data'high report "Transmitted packet is too long (size now " & integer'image(current_byte) & ")" severity failure;
 				fcs := NEXTCRC32_D8(data, fcs);
 
 				-- Exit after frame end
@@ -468,6 +487,8 @@ begin
 			wait until not receive_packet_req;
 			receive_packet_ack <= FALSE;
 		end if;
+
+	--report "Stop receiver" severity note;
 	end process;
 
 	-- Main test process
@@ -550,39 +571,41 @@ begin
 			end if;
 
 			-- Tests for packets that should get dropped
-			-- Test size that is greater than total RX buffer size
-			test_broken_size(9999);
-			-- Test size that overflows 15 bits of size information in FIFOs
-			test_broken_size(2 ** 15 + 1);
-
-			if TEST_THOROUGH then
-				-- Test runt frames
-				for size in 1 to MIN_FRAME_DATA_BYTES - 1 loop
-					test_broken_size(size);
-				end loop;
-				-- Test jumbo frames
-				for size in MAX_FRAME_DATA_BYTES + 1 to MAX_FRAME_DATA_BYTES + 10 loop
-					test_broken_size(size);
-				end loop;
-			else
-				-- Test runt frames
-				test_broken_size(1);
-				test_broken_size(2);
-				test_broken_size(3);
-				test_broken_size(MIN_FRAME_DATA_BYTES - 2);
-				test_broken_size(MIN_FRAME_DATA_BYTES - 1);
-				-- Test jumbo frames
-				test_broken_size(MAX_FRAME_DATA_BYTES + 1);
-				test_broken_size(MAX_FRAME_DATA_BYTES + 2);
+			if TRUE then
+				if TEST_THOROUGH then
+					-- Test runt frames
+					for size in 1 to MIN_FRAME_DATA_BYTES - 1 loop
+						test_broken_size(size);
+					end loop;
+					-- Test jumbo frames
+					for size in MAX_FRAME_DATA_BYTES + 1 to MAX_FRAME_DATA_BYTES + 10 loop
+						test_broken_size(size);
+					end loop;
+				else
+					-- Test runt frames
+					test_broken_size(1);
+					test_broken_size(2);
+					test_broken_size(3);
+					test_broken_size(MIN_FRAME_DATA_BYTES - 2);
+					test_broken_size(MIN_FRAME_DATA_BYTES - 1);
+					-- Test jumbo frames
+					test_broken_size(MAX_FRAME_DATA_BYTES + 1);
+					test_broken_size(MAX_FRAME_DATA_BYTES + 2);
+				end if;
+				-- Test size that overflows 11 bits of size information in FIFOs
+				test_broken_size(2 ** 11 + 1);
+				-- Test size that is greater than total RX buffer size
+				test_broken_size(9999);
+				-- Test wrong FCS
+				report "Check single broken frame is not looped back size 100 bad FCS" severity note;
+				send_packet_buffer(0).size <= 100;
+				send_corrupt_data          <= TRUE;
+				test_send_broken;
+				send_corrupt_data  <= FALSE;
+				-- Disable receiver
+				receive_packet_req <= FALSE;
+				wait for mii_rx_clk_period * 2;
 			end if;
-			-- Test wrong FCS
-			report "Check single broken frame is not looped back size 100 bad FCS" severity note;
-			send_packet_buffer(0).size <= 100;
-			send_corrupt_data          <= TRUE;
-			test_send_broken;
-			send_corrupt_data  <= FALSE;
-			-- Disable receiver
-			receive_packet_req <= FALSE;
 
 			-- Check RX FIFO overflow
 			for i in 0 to 7 loop
@@ -609,13 +632,14 @@ begin
 			assert not receive_packet_ack report "Too many packets were received" severity failure;
 			-- Disable receiver
 			receive_packet_req <= FALSE;
+			wait for mii_rx_clk_period * 2;
 			-- Validate packets that went through
-			assert receive_packet_buffer(0 to 2) = send_packet_buffer(0 to 2) report "Packet loopback resulted in different packets" severity failure;
+			assert receive_packet_buffer(0) = send_packet_buffer(0) report "Packet loopback resulted in different packets" severity failure;
 			-- Check that normal reception is now working again
 			receive_packet_count_expected <= 1;
+			send_packet_buffer(1).valid   <= FALSE;
 			test_one_size(100);
-			
-			-- TODO: Check for correct FIFO function when it is filled up exactly to the last byte
+		-- TODO: Check for correct FIFO function when it is filled up exactly to the last byte
 		end procedure;
 	begin
 		report "Hello" severity note;
@@ -627,8 +651,7 @@ begin
 
 		for packet_i in send_packet_buffer'range loop
 			for i in t_packet_data'range loop
-				-- Set high bit one for maximum confusion in RX FIFO
-				send_packet_buffer(packet_i).data(i) <= std_ulogic_vector("1" & to_unsigned((i + 5 + packet_i) mod 128, 7));
+				send_packet_buffer(packet_i).data(i) <= std_ulogic_vector("1" & to_unsigned((i + 7 + packet_i) mod 128, 7));
 			end loop;
 		end loop;
 
