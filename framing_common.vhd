@@ -38,8 +38,14 @@ end package;
 
 package body framing_common is
 	function fcs_output_byte(fcs : t_crc32; byte : integer) return t_ethernet_data is
+		variable reversed : t_crc32;
+		variable out_byte : t_ethernet_data;
+		variable inverted : t_ethernet_data;
 	begin
 		-- Reverse and invert the whole CRC32, then get the needed byte out
-		return not reverse_vector(fcs)((((byte + 1) * 8) - 1) downto byte * 8);
+		reversed := reverse_vector(fcs);
+		out_byte := reversed((((byte + 1) * 8) - 1) downto byte * 8);
+		inverted := not out_byte;
+		return inverted;
 	end function;
 end package body;

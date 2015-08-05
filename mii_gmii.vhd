@@ -62,7 +62,7 @@ architecture rtl of mii_gmii is
 		TX_MII_LO_QUAD,
 		TX_MII_HI_QUAD,
 		TX_INTER_PACKET_GAP,
-		-- MII needs two clock cycles per interframe gap byte
+		-- MII needs two clock cycles per inter-packet gap byte
 		TX_INTER_PACKET_GAP_MII_HI_QUAD
 	);
 	signal tx_state      : t_mii_gmii_tx_state := TX_IDLE;
@@ -72,19 +72,13 @@ architecture rtl of mii_gmii is
 		RX_INIT,
 		RX_GMII,
 		RX_MII_LO_QUAD,
-		RX_MII_HI_QUAD,
-		RX_SPEED_CHANGE
+		RX_MII_HI_QUAD
 	);
-	signal rx_state      : t_mii_gmii_rx_state := RX_INIT;
-	signal rx_next_state : t_mii_gmii_rx_state := RX_INIT;
+	signal rx_state : t_mii_gmii_rx_state := RX_INIT;
 
 	signal inter_packet_gap_counter : integer range 0 to INTER_PACKET_GAP_BYTES;
 
-	signal tx_data             : t_ethernet_data;
-	-- Only the MII low 4 bits are buffered, the other 4 bits are 
-	-- forwarded directly from the input FIFO.
-	-- For GMII, the whole byte is just forwarded without buffering.
-	signal rx_data_mii_lo_quad : std_ulogic_vector(3 downto 0);
+	signal tx_data : t_ethernet_data;
 
 	signal speed_select_tx_ff : t_ethernet_speed;
 	signal speed_select_tx    : t_ethernet_speed;
@@ -225,94 +219,67 @@ begin
 		end case;
 	end process;
 
-	mii_gmii_rx_fsm_sync : process(reset_i, rx_clock_i)
+	-- MII/GMII packet reception
+	mii_gmii_rx_fsm : process(rx_clock_i, reset_i)
 	begin
 		if reset_i = '1' then
-			rx_state <= RX_INIT;
+			rx_state           <= RX_INIT;
+			rx_byte_received_o <= '0';
 		elsif rising_edge(rx_clock_i) then
-			rx_state <= rx_next_state;
-
 			-- Remember last speed to detect speed changes
 			last_speed_select_rx <= speed_select_rx;
 
-			-- Capture data
-			if rx_state = RX_MII_LO_QUAD then
-				rx_data_mii_lo_quad <= mii_rxd_i(3 downto 0);
+			rx_frame_o         <= '0';
+			rx_byte_received_o <= '0';
+			rx_error_o         <= '0';
+
+			if rx_state /= RX_INIT then
+				rx_error_o <= mii_rx_er_i;
+				rx_frame_o <= mii_rx_dv_i;
 			end if;
 
-		end if;
-	end process;
-
-	mii_gmii_rx_output : process(rx_state, rx_data_mii_lo_quad, mii_rx_dv_i, mii_rx_er_i, mii_rxd_i)
-	begin
-		rx_frame_o         <= '0';
-		rx_data_o          <= (others => '0');
-		rx_byte_received_o <= '0';
-		rx_error_o         <= '0';
-
-		-- Frame/error control signals
-		case rx_state is
-			when RX_GMII | RX_MII_LO_QUAD | RX_MII_HI_QUAD =>
-				rx_frame_o <= mii_rx_dv_i;
-				rx_error_o <= mii_rx_er_i;
-			when RX_SPEED_CHANGE =>
-				rx_frame_o <= mii_rx_dv_i;
-				-- Output an error to throw the frame away at the receiver
-				-- if speed transition occurs while receiving
-				rx_error_o <= '1';
-			when others =>
-				null;
-		end case;
-
-		-- Data and data valid signals
-		case rx_state is
-			when RX_GMII =>
-				-- Pass data through directly
-				rx_data_o          <= mii_rxd_i;
-				rx_byte_received_o <= mii_rx_dv_i; -- '1';
-			when RX_MII_LO_QUAD =>
-				-- Delay needed for behavioral simulation
-				-- Pass high 4 bits through directly, use the buffered 4 bits for the other part
-				rx_data_o          <= mii_rxd_i(3 downto 0) & rx_data_mii_lo_quad;
-				rx_byte_received_o <= '0';
-			when RX_MII_HI_QUAD =>
-				rx_data_o          <= mii_rxd_i(3 downto 0) & rx_data_mii_lo_quad;
-				rx_byte_received_o <= '1';
-			when others =>
-				null;
-		end case;
-	end process;
-
-	mii_gmii_rx_fsm : process(last_speed_select_rx, speed_select_rx, rx_state, mii_rx_dv_i)
-	begin
-		rx_next_state <= rx_state;
-
-		if last_speed_select_rx /= speed_select_rx then
-			rx_next_state <= RX_SPEED_CHANGE;
-		else
 			case rx_state is
 				when RX_INIT =>
 					-- Wait for a pause in reception
 					if mii_rx_dv_i = '0' then
 						case speed_select_rx is
 							when SPEED_1000MBPS =>
-								rx_next_state <= RX_GMII;
+								rx_state <= RX_GMII;
 							when others =>
-								rx_next_state <= RX_MII_LO_QUAD;
+								rx_state <= RX_MII_LO_QUAD;
 						end case;
 					end if;
 				when RX_GMII =>
-					null;
+					-- Just pass the data through
+					rx_data_o          <= mii_rxd_i;
+					rx_byte_received_o <= mii_rx_dv_i;
 				when RX_MII_LO_QUAD =>
-					-- Stay here until start of reception
+					-- Wait until start of reception
 					if mii_rx_dv_i = '1' then
-						rx_next_state <= RX_MII_HI_QUAD;
+						rx_state <= RX_MII_HI_QUAD;
 					end if;
+					-- Capture low quad
+					rx_data_o(3 downto 0) <= mii_rxd_i(3 downto 0);
 				when RX_MII_HI_QUAD =>
-					rx_next_state <= RX_MII_LO_QUAD;
-				when RX_SPEED_CHANGE =>
-					rx_next_state <= RX_INIT;
+					-- Capture high quad and mark it valid
+					rx_data_o(7 downto 4) <= mii_rxd_i(3 downto 0);
+					rx_byte_received_o    <= '1';
+					rx_frame_o            <= '1';
+					if mii_rx_dv_i = '0' then
+						-- Frame ended prematurely on a half-byte
+						rx_error_o <= '1';
+					end if;
+					rx_state <= RX_MII_LO_QUAD;
 			end case;
+
+			if last_speed_select_rx /= speed_select_rx then
+				-- Output an error to throw the frame away at the receiver
+				-- if speed transition occurs while receiving
+				if mii_rx_dv_i = '1' then
+					rx_error_o <= '1';
+				end if;
+				rx_state <= RX_INIT;
+			end if;
 		end if;
 	end process;
 

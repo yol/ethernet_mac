@@ -25,8 +25,8 @@ architecture spartan6 of single_signal_synchronizer is
 	-- Do not allow register balancing
 	attribute register_balancing : string;
 	attribute register_balancing of signal_tmp : signal is "no";
-	attribute register_balancing of signal_i : signal is "no";
-	attribute register_balancing of signal_o : signal is "no";
+	--attribute register_balancing of signal_i : signal is "no";
+	--attribute register_balancing of signal_o : signal is "no";
 begin
 	FDRE_tmp_inst : FDRE
 		generic map(
