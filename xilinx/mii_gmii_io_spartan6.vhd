@@ -6,8 +6,6 @@
 library ieee;
 use ieee.std_logic_1164.all;
 
-use work.mii_types.all;
-
 library unisim;
 use unisim.vcomponents.all;
 
@@ -15,31 +13,25 @@ architecture spartan_6 of mii_gmii_io is
 	signal gmii_active      : std_ulogic := '0';
 	signal clock_tx         : std_ulogic := '0';
 	signal clock_tx_inv     : std_ulogic := '1';
-	--signal clock_mii_rx     : std_ulogic := '0';
 	signal clock_mii_rx_io  : std_ulogic := '0';
 	signal clock_mii_rx_div : std_ulogic;
 
+	-- IDELAY_VALUE applied to the inputs using IODELAY2
+	-- This will need fine-tuning depending on the exact device and the location of the IO pins
+	-- The constraints file can be used to override this default value in the fixed_input_delay
+	-- instances if needed
 	constant MII_RX_INPUT_DELAY : natural := 10;
 	signal clock_mii_rx_ibufg   : std_ulogic;
 
 begin
-	clock_tx_o <= clock_tx;
+	clock_tx_o   <= clock_tx;
+	-- Inverter is absorbed into the IOB FF clock inputs
 	clock_tx_inv <= not clock_tx;
 
-	-- Infer register for gmii_active to guarantee that no hazards can reach the BUFGMUX
-	-- Needs to be synchronized to any clock that is always running, which one doesn't really matter
-	-- (BUFMUX S input is asynchronous when CLK_SEL_TYPE is set to ASYNC)
-	-- Using clock_125 allows gmii_active to be used as CE input for the GTX_CLK output
-	speed_selection : process(clock_125_i)
-	begin
-		if rising_edge(clock_125_i) then
-			if speed_select_i = SPEED_1000MBPS then
-				gmii_active <= '1';
-			else
-				gmii_active <= '0';
-			end if;
-		end if;
-	end process;
+	-- speed_select_i must be registered so no hazards can reach the BUFGMUX
+	with speed_select_i select gmii_active <=
+		'1' when SPEED_1000MBPS,
+		'0' when others;
 
 	-- Switch between 125 Mhz reference clock and MII_TX_CLK for TX process and register clocking
 	-- depending on mode of operation
@@ -48,12 +40,12 @@ begin
 	-- be reset after a speed change.
 	clock_tx_BUFGMUX_inst : BUFGMUX
 		generic map(
-			CLK_SEL_TYPE => "ASYNC"      -- Glitchles ("SYNC") or fast ("ASYNC") clock switch-over
+			CLK_SEL_TYPE => "ASYNC"     -- Glitchles ("SYNC") or fast ("ASYNC") clock switch-over
 		)
 		port map(
 			O  => clock_tx,             -- 1-bit output: Clock buffer output
 			I0 => mii_tx_clk_i,         -- 1-bit input: Clock buffer input (S=0)
-			I1 => clock_125_unbuffered_i, -- 1-bit input: Clock buffer input (S=1)
+			I1 => clock_125_i,          -- 1-bit input: Clock buffer input (S=1)
 			S  => gmii_active           -- 1-bit input: Clock buffer select
 		);
 
@@ -61,6 +53,9 @@ begin
 	-- and avoid outputting a useless 25 MHz clock in MII mode.
 	-- Invert clock so that the output values toggle at the falling edge (as seen from the PHY)
 	-- and are valid when the clock rises.
+	-- Clock enable is not synchronous to clock_tx here, but that shouldn't matter as it
+	-- switches only very seldomly. If the setup/hold time is violated, only one or two clock cyles
+	-- should be missed. 
 	ODDR2_inst : ODDR2
 		generic map(
 			DDR_ALIGNMENT => "NONE",    -- Sets output alignment to "NONE", "C0", "C1" 
@@ -103,22 +98,6 @@ begin
 			S  => '0'                   -- 1-bit set input
 		);
 
-	mii_tx_er_ODDR2_inst : ODDR2
-		generic map(
-			DDR_ALIGNMENT => "C0",      -- Sets output alignment to "NONE", "C0", "C1" 
-			INIT          => '0',       -- Sets initial state of the Q output to '0' or '1'
-			SRTYPE        => "ASYNC")   -- Specifies "SYNC" or "ASYNC" set/reset
-		port map(
-			Q  => mii_tx_er_o,          -- 1-bit output data
-			C0 => clock_tx,             -- 1-bit clock input
-			C1 => clock_tx_inv,         -- 1-bit clock input
-			CE => '1',                  -- 1-bit clock enable input
-			D0 => int_mii_tx_er_i,      -- 1-bit data input (associated with C0)
-			D1 => int_mii_tx_er_i,      -- 1-bit data input (associated with C1)
-			R  => '0',                  -- 1-bit reset input
-			S  => '0'                   -- 1-bit set input
-		);
-
 	mii_txd_ODDR2_generate : for i in mii_txd_o'range generate
 		mii_txd_ODDR2_inst : ODDR2
 			generic map(
@@ -138,8 +117,8 @@ begin
 	end generate;
 
 	-- Inserting a delay into the clock path should theoretically allow fine-tuning
-	-- of the clock/data offset, but the timing analyzer doesn't like it as the very big uncertainty
-	-- of both IODELAY2 instances on the paths will be added up. Maybe it works anyway. Try if
+	-- of the clock/data offset, but the timing analyzer doesn't like it as very big
+	-- IDELAY_VALUE values are necessary that exhibit strong variations. Maybe it works anyway. Try if
 	-- the current method fails.
 	--	mii_rx_clk_delay_inst : entity work.fixed_input_delay
 	--		generic map (
@@ -215,22 +194,5 @@ begin
 				clock_i  => clock_mii_rx_io
 			);
 	end generate;
-
---	mii_rx_dv_IDDR2_inst : ODDR2
---		generic map(
---			DDR_ALIGNMENT => "NONE",    -- Sets output alignment to "NONE", "C0", "C1" 
---			INIT_Q0       => '0',       -- Sets initial state of the Q0 output to '0' or '1'
---			INIT_Q1       => '0',       -- Sets initial state of the Q1 output to '0' or '1'
---			SRTYPE        => "SYNC")    -- Specifies "SYNC" or "ASYNC" set/reset
---		port map(
---			Q0 => int_mii_rx_dv_o,      -- 1-bit output captured with C0 clock
---			Q1 => open,                 -- 1-bit output captured with C1 clock
---			C0 => clock_mii_rx_io,      -- 1-bit clock input
---			C1 => not clock_mii_rx_io,  -- 1-bit clock input
---			CE => '1',                  -- 1-bit clock enable input
---			D  => mii_rx_dv_i,          -- 1-bit data input 
---			R  => '0',                  -- 1-bit reset input
---			S  => '0'                   -- 1-bit set input
---		);
 
 end architecture;

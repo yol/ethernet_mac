@@ -3,12 +3,12 @@
 -- For the full copyright and license information, please read the
 -- LICENSE.md file that was distributed with this source code.
 
+-- Synchronize a single bit from an arbitrary clock domain
+-- into the clock_target domain
+
 library ieee;
 use ieee.std_logic_1164.all;
 
--- Synchronize a single bit from an arbitrary clock domain
--- into the clock_target domain
--- Uses two flip-flops
 entity single_signal_synchronizer is
 	port(
 		clock_target_i : in  std_ulogic;

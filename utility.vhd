@@ -3,10 +3,13 @@
 -- For the full copyright and license information, please read the
 -- LICENSE.md file that was distributed with this source code.
 
+-- Utility functions
+
 library ieee;
 use ieee.std_logic_1164.all;
 
 package utility is
+	-- Return the reverse of the given vector
 	function reverse_vector(a : in std_ulogic_vector) return std_ulogic_vector;
 end package;
 

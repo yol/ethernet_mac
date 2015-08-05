@@ -7,18 +7,17 @@ library ieee;
 use ieee.std_logic_1164.all;
 use ieee.numeric_std.all;
 
-
 use work.ethernet_types.all;
 use work.miim_types.all;
 
 entity test_wrapper_spartan6 is
 	generic(
-		MIIM_PHY_ADDRESS      : phy_address_t := "00000";
-		MIIM_RESET_WAIT_TICKS : natural := 0;
-		MIIM_POLL_WAIT_TICKS  : natural := 0;
+		MIIM_PHY_ADDRESS      : phy_address_t      := "00000";
+		MIIM_RESET_WAIT_TICKS : natural            := 0;
+		MIIM_POLL_WAIT_TICKS  : natural            := 0;
 		MIIM_SPEED_REGISTER   : register_address_t := "00000";
-		MIIM_SPEED_HIGH_BIT   : integer := 0;
-		MIIM_SPEED_LOW_BIT    : integer := 0
+		MIIM_SPEED_HIGH_BIT   : integer            := 0;
+		MIIM_SPEED_LOW_BIT    : integer            := 0
 	);
 	port(
 		clock_125_i            : in    std_ulogic;
@@ -62,13 +61,12 @@ end entity;
 architecture behavioral of test_wrapper_spartan6 is
 	signal mii_txd : std_logic_vector(7 downto 0);
 	signal rx_data : std_logic_vector(7 downto 0);
-	signal speed : std_logic_vector(1 downto 0);
+	signal speed   : std_logic_vector(1 downto 0);
 begin
-	
 	mii_txd_o <= std_ulogic_vector(mii_txd);
 	rx_data_o <= std_ulogic_vector(rx_data);
-	speed_o <= ethernet_speed_t(speed);
-	
+	speed_o   <= ethernet_speed_t(speed);
+
 	test_instance_inst : entity work.test_instance_spartan6
 		port map(
 			clock_125_i      => clock_125_i,
@@ -98,6 +96,6 @@ begin
 			speed_o          => speed,
 			speed_override_i => std_logic_vector(speed_override_i)
 		);
-	
+
 end architecture;
 

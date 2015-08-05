@@ -3,10 +3,11 @@
 -- For the full copyright and license information, please read the
 -- LICENSE.md file that was distributed with this source code.
 
+-- Simple testbench for playing around with the CRC calculation code
+
 library ieee;
 use ieee.std_logic_1164.all;
 use ieee.numeric_std.all;
-
 
 use work.crc32.all;
 use work.utility.all;
@@ -64,21 +65,20 @@ architecture behavioral of crc32_tb is
 
 		return NEWCRC;
 	end NEXTCRC32_D8;
-	
+
 	-- Signals as isim cannot trace variables
-	signal crc : crc32_result_t;
-	signal comparison_crc : crc32_result_t;
-	signal data : std_ulogic_vector(7 downto 0);
-	
+	signal crc            : t_crc32;
+	signal comparison_crc : t_crc32;
+	signal data           : std_ulogic_vector(7 downto 0);
+
 	constant WAIT_PERIOD : time := 40 ns;
 begin
-	
 	test_crc32 : process
-		variable saved_crc : crc32_result_t;
+		variable saved_crc : t_crc32;
 	begin
 		crc            <= (others => '1');
 		comparison_crc <= (others => '1');
-		data <= (others => '0');
+		data           <= (others => '0');
 		wait for WAIT_PERIOD;
 
 		for cnt in 0 to 10 loop
@@ -87,33 +87,32 @@ begin
 			if cnt >= 7 then
 				data <= (others => '0');
 			else
-				data           <= std_ulogic_vector(to_unsigned(cnt + 1, 8));
+				data <= std_ulogic_vector(to_unsigned(cnt + 1, 8));
 			end if;
 			wait for WAIT_PERIOD;
 			if crc /= comparison_crc then
 				report "CRC mismatch" severity note;
 			end if;
 		end loop;
-		
+
 		saved_crc := not reverse_vector(crc);
-		
+
 		wait for 100 ns;
-		
-	
+
 		for j in 0 to 3 loop
-			crc <= update_crc32(crc, saved_crc(((j + 1) * 8) - 1 downto j * 8));
+			crc            <= update_crc32(crc, saved_crc(((j + 1) * 8) - 1 downto j * 8));
 			comparison_crc <= NEXTCRC32_D8(saved_crc(((j + 1) * 8) - 1 downto j * 8), crc);
 			wait for WAIT_PERIOD;
 		end loop;
-		
+
 		--crc <= reverse_vector(crc);
-		
+
 		wait for WAIT_PERIOD;
-		
+
 		if crc /= X"C704dd7B" then
 			report "Final CRC wrong" severity note;
 		end if;
-		
+
 		wait;
 	end process;
 

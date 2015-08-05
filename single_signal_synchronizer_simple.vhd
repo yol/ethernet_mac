@@ -3,6 +3,8 @@
 -- For the full copyright and license information, please read the
 -- LICENSE.md file that was distributed with this source code.
 
+-- Simple two-FF synchronizer
+
 library ieee;
 use ieee.std_logic_1164.all;
 

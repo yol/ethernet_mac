@@ -3,12 +3,14 @@
 -- For the full copyright and license information, please read the
 -- LICENSE.md file that was distributed with this source code.
 
+-- Self-checking testbench for the complete ethernet_mac
+
 library ieee;
 use ieee.std_logic_1164.all;
 use ieee.numeric_std.all;
 
 use work.ethernet_types.all;
-use work.framing_types.all;
+use work.framing_common.all;
 use work.utility.all;
 use work.crc32.all;
 
@@ -18,28 +20,26 @@ end entity;
 architecture behavioral of ethernet_mac_tb is
 
 	-- ethernet_with_fifos signals
-	signal clock_125            : std_ulogic                    := '0';
-	signal clock_125_inv        : std_ulogic                    := '1';
-	signal clock_125_unbuffered : std_ulogic                    := '0';
-	signal reset                : std_ulogic                    := '1';
-	signal mii_tx_clk           : std_ulogic                    := '0';
-	signal mii_tx_er            : std_ulogic                    := '0';
-	signal mii_tx_en            : std_ulogic                    := '0';
-	signal mii_txd              : std_ulogic_vector(7 downto 0) := (others => '0');
-	signal mii_rx_clk           : std_ulogic                    := '0';
-	signal mii_rx_er            : std_ulogic                    := '0';
-	signal mii_rx_dv            : std_ulogic                    := '0';
-	signal mii_rxd              : std_ulogic_vector(7 downto 0) := (others => '0');
-	signal gmii_gtx_clk         : std_ulogic                    := '0';
-	signal user_clock           : std_ulogic                    := '0';
-	signal rx_empty             : std_ulogic                    := '0';
-	signal rx_rd_en             : std_ulogic                    := '0';
-	signal rx_data              : ethernet_data_t               := (others => '0');
-	signal tx_data              : ethernet_data_t               := (others => '0');
-	signal tx_data_wr_en        : std_ulogic                    := '0';
-	signal tx_data_full         : std_ulogic                    := '0';
-	signal link_up              : std_ulogic                    := '0';
-	signal speed                : ethernet_speed_t              := (others => '0');
+	signal clock_125     : std_ulogic                    := '0';
+	signal reset         : std_ulogic                    := '1';
+	signal mii_tx_clk    : std_ulogic                    := '0';
+	signal mii_tx_er     : std_ulogic                    := '0';
+	signal mii_tx_en     : std_ulogic                    := '0';
+	signal mii_txd       : std_ulogic_vector(7 downto 0) := (others => '0');
+	signal mii_rx_clk    : std_ulogic                    := '0';
+	signal mii_rx_er     : std_ulogic                    := '0';
+	signal mii_rx_dv     : std_ulogic                    := '0';
+	signal mii_rxd       : std_ulogic_vector(7 downto 0) := (others => '0');
+	signal gmii_gtx_clk  : std_ulogic                    := '0';
+	signal user_clock    : std_ulogic                    := '0';
+	signal rx_empty      : std_ulogic                    := '0';
+	signal rx_rd_en      : std_ulogic                    := '0';
+	signal rx_data       : t_ethernet_data               := (others => '0');
+	signal tx_data       : t_ethernet_data               := (others => '0');
+	signal tx_data_wr_en : std_ulogic                    := '0';
+	signal tx_data_full  : std_ulogic                    := '0';
+	signal link_up       : std_ulogic                    := '0';
+	signal speed         : t_ethernet_speed              := (others => '0');
 
 	-- Test configuration
 	constant TEST_THOROUGH : boolean := FALSE;
@@ -50,7 +50,7 @@ architecture behavioral of ethernet_mac_tb is
 	constant MAX_PACKETS_IN_TRANSACTION : integer := 10;
 
 	-- Data array length is a bit on the large side so we can send jumbo frames
-	type t_packet_data is array (0 to 10000) of ethernet_data_t;
+	type t_packet_data is array (0 to 10000) of t_ethernet_data;
 	--type t_packet_data is array (0 to 1050) of ethernet_data_t;
 	--type t_packet_data is array (0 to 60) of ethernet_data_t;
 	type t_packet_transaction is record
@@ -60,7 +60,7 @@ architecture behavioral of ethernet_mac_tb is
 	end record;
 	type t_packet_buffer is array (0 to MAX_PACKETS_IN_TRANSACTION - 1) of t_packet_transaction;
 
-	signal speed_override     : ethernet_speed_t := SPEED_1000MBPS;
+	signal speed_override     : t_ethernet_speed := SPEED_1000MBPS;
 	signal send_packet_req    : boolean          := FALSE;
 	signal send_packet_ack    : boolean          := FALSE;
 	signal send_corrupt_data  : boolean          := FALSE;
@@ -73,7 +73,7 @@ architecture behavioral of ethernet_mac_tb is
 
 	signal mac_mirror_run : boolean := TRUE;
 
-	-- Clock period definitions
+	-- Timing definitions
 	constant clock_125_period : time := 8 ns;
 	constant clock_25_period  : time := 40 ns;
 	constant clock_2_5_period : time := 400 ns;
@@ -81,6 +81,7 @@ architecture behavioral of ethernet_mac_tb is
 	constant mii_rx_hold      : time := 0 ns;
 
 	-- Functions
+
 	impure function mii_rx_clk_period return time is
 	begin
 		case speed_override is
@@ -93,7 +94,7 @@ architecture behavioral of ethernet_mac_tb is
 		end case;
 	end function;
 
-	-- Compare two packet transaction
+	-- Compare two packet transactions
 	function "="(left, right : in t_packet_transaction) return boolean is
 	begin
 		if left.valid /= right.valid then
@@ -186,54 +187,40 @@ architecture behavioral of ethernet_mac_tb is
 		return NEWCRC;
 	end function;
 
-	function fcs_output_byte(fcs : std_ulogic_vector(31 downto 0); byte : integer) return std_ulogic_vector is
-	begin
-		return not reverse_vector(fcs)((((byte + 1) * 8) - 1) downto byte * 8);
-	end function fcs_output_byte;
-
 begin
-	clock_125_unbuffered <= clock_125;
-	clock_125_inv        <= not clock_125;
-
 	-- Be aware of simulation mismatch because of delta-delay issues here
 	user_clock <= clock_125;
 
 	-- Instantiate component
 	ethernet_mac_inst : entity work.ethernet_with_fifos --work.test_wrapper_spartan6 
-		generic map(
-			MIIM_SPEED_REGISTER => "00000",
-			MIIM_SPEED_HIGH_BIT => 0,
-			MIIM_SPEED_LOW_BIT  => 0
-		)
 		port map(
-			clock_125_i            => clock_125,
-			clock_125_inv_i        => clock_125_inv,
-			clock_125_unbuffered_i => clock_125_unbuffered,
-			reset_i                => reset,
-			mii_tx_clk_i           => mii_tx_clk,
-			mii_tx_er_o            => mii_tx_er,
-			mii_tx_en_o            => mii_tx_en,
-			mii_txd_o              => mii_txd,
-			mii_rx_clk_i           => mii_rx_clk,
-			mii_rx_er_i            => mii_rx_er,
-			mii_rx_dv_i            => mii_rx_dv,
-			mii_rxd_i              => mii_rxd,
-			gmii_gtx_clk_o         => gmii_gtx_clk,
-			rgmii_tx_ctl_o         => open,
-			rgmii_rx_ctl_i         => '0',
-			mdc_o                  => open,
-			mdio_io                => open,
-			rx_clock_i             => user_clock,
-			rx_empty_o             => rx_empty,
-			rx_rd_en_i             => rx_rd_en,
-			rx_data_o              => rx_data,
-			tx_clock_i             => user_clock,
-			tx_data_i              => tx_data,
-			tx_data_wr_en_i        => tx_data_wr_en,
-			tx_data_full_o         => tx_data_full,
-			link_up_o              => link_up,
-			speed_o                => speed,
-			speed_override_i       => speed_override
+			clock_125_i      => clock_125,
+			reset_i          => reset,
+			mii_tx_clk_i     => mii_tx_clk,
+			mii_tx_er_o      => mii_tx_er,
+			mii_tx_en_o      => mii_tx_en,
+			mii_txd_o        => mii_txd,
+			mii_rx_clk_i     => mii_rx_clk,
+			mii_rx_er_i      => mii_rx_er,
+			mii_rx_dv_i      => mii_rx_dv,
+			mii_rxd_i        => mii_rxd,
+			gmii_gtx_clk_o   => gmii_gtx_clk,
+			rgmii_tx_ctl_o   => open,
+			rgmii_rx_ctl_i   => '0',
+			miim_clock_i     => clock_125,
+			mdc_o            => open,
+			mdio_io          => open,
+			rx_clock_i       => user_clock,
+			rx_empty_o       => rx_empty,
+			rx_rd_en_i       => rx_rd_en,
+			rx_data_o        => rx_data,
+			tx_clock_i       => user_clock,
+			tx_data_i        => tx_data,
+			tx_wr_en_i       => tx_data_wr_en,
+			tx_full_o        => tx_data_full,
+			link_up_o        => link_up,
+			speed_o          => speed,
+			speed_override_i => speed_override
 		);
 
 	-- Generate clocks
@@ -377,7 +364,7 @@ begin
 	-- Process for reading the MII TX interface into a packet buffer
 	packet_receive_process : process is
 		variable current_byte : integer := 0;
-		variable data         : ethernet_data_t;
+		variable data         : t_ethernet_data;
 		variable fcs          : std_ulogic_vector(31 downto 0);
 
 		procedure wait_clk is
@@ -391,7 +378,7 @@ begin
 			assert mii_tx_er = '0' report "MII transmission error flag is set" severity failure;
 		end procedure;
 
-		procedure read_byte(output_byte : out ethernet_data_t) is
+		procedure read_byte(output_byte : out t_ethernet_data) is
 		begin
 			case speed_override is
 				when SPEED_10MBPS | SPEED_100MBPS =>
@@ -612,7 +599,9 @@ begin
 			receive_packet_req <= FALSE;
 			wait for mii_rx_clk_period * 2;
 			-- Validate packets that went through
-			assert receive_packet_buffer(0) = send_packet_buffer(0) report "Packet loopback resulted in different packets" severity failure;
+			for i in 0 to 2 loop
+				assert receive_packet_buffer(i) = send_packet_buffer(i) report "Packet loopback resulted in different packets" severity failure;
+			end loop;
 			-- Check that normal reception is now working again
 			receive_packet_count_expected <= 1;
 			send_packet_buffer(1).valid   <= FALSE;

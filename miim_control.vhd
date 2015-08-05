@@ -4,13 +4,12 @@
 -- LICENSE.md file that was distributed with this source code.
 
 library ieee;
-use ieee.std_logic_1164.ALL;
-use ieee.numeric_std.ALL;
+use ieee.std_logic_1164.all;
+use ieee.numeric_std.all;
 
-
-use work.ethernet_types.ethernet_speed_t;
+use work.ethernet_types.all;
 use work.miim_types.all;
-use work.miim_control_types.all;
+use work.miim_registers.all;
 
 entity miim_control is
 	generic(
@@ -20,36 +19,24 @@ entity miim_control is
 		-- Ticks to wait between polling the status register
 		POLL_WAIT_TICKS  : natural := DEFAULT_POLL_WAIT_TICKS;
 
-		-- Register to read speed information from
-		-- Speed information is not standardized in IEEE 802.3, but needed for correct interface operation
-		-- This register will be polled from time to time and the information be put out on speed_o
-		SPEED_REGISTER   : register_address_t;
-		-- High bit number in SPEED_REGISTER with speed information (0: 10/100 Mbps, 1: 1000 Mbps)
-		SPEED_HIGH_BIT   : integer range data_t'range;
-		-- Low bit number in SPEED_REGISTER with speed information (0: 10 Mbps, 1: 100 Mbps)
-		SPEED_LOW_BIT    : integer range data_t'range;
-
 		-- Activate debug output
 		DEBUG_OUTPUT     : boolean := FALSE
 
-	-- Example for Marvell PHY 88E1111:
+	-- Example for Marvell PHY 88E1111 and 125 MHz MIIM clock:
 	-- RESET_WAIT_TICKS => 1250000 (10 ms at 125 MHz, minimum: 5 ms)
-	-- SPEED_REGISTER => 17 (PHY Specific Status Register)
-	-- SPEED_HIGH_BIT => 15
-	-- SPEED_LOW_BIT  => 14
 	);
 	port(
 		reset_i                 : in  std_ulogic;
 		clock_i                 : in  std_ulogic;
 
-		miim_register_address_o : out register_address_t;
-		miim_data_read_i        : in  data_t;
-		miim_data_write_o       : out data_t;
+		miim_register_address_o : out t_register_address;
+		miim_data_read_i        : in  t_data;
+		miim_data_write_o       : out t_data;
 		miim_req_o              : out std_ulogic;
 		miim_ack_i              : in  std_ulogic;
 		miim_we_o               : out std_ulogic;
 
-		speed_o                 : out ethernet_speed_t;
+		speed_o                 : out t_ethernet_speed;
 		link_up_o               : out std_ulogic;
 
 		-- Only used if DEBUG_OUTPUT is TRUE
@@ -59,16 +46,17 @@ entity miim_control is
 end entity;
 
 architecture rtl of miim_control is
-	signal register_address : register_address_t := (others => '0');
+	signal register_address : t_register_address;
 
-	type state_t is (
+	type t_state is (
 		RESET_WAIT,
 		WRITE_AUTONEG,
 		WRITE_GIGABIT_AUTONEG,
 		WRITE_SOFTRESET,
 		WAIT_POLL,
 		READ_STATUS,
-		READ_SPEED,
+		READ_SPEED_10_100,
+		READ_SPEED_1000,
 		DEBUG_START,
 		DEBUG_WRITE_REGAD,
 		DEBUG_WRITE_BYTE1,
@@ -76,13 +64,17 @@ architecture rtl of miim_control is
 		WAIT_ACK_LOW,
 		DEBUG_DONE
 	);
-	signal state           : state_t := RESET_WAIT;
-	signal after_ack_state : state_t := DEBUG_DONE;
+	signal state           : t_state := RESET_WAIT;
+	signal after_ack_state : t_state := DEBUG_DONE;
 
-	constant control_register_reset : control_register_t := (
+	-- Initial register write contents
+
+	-- Reset the PHY
+	constant control_register_reset : t_control_register := (
 		reset                    => '1',
 		loopback                 => '0',
-		speed                    => SPEED_1000MBPS,
+		speed_10_100             => '0',
+		speed_1000               => '1',
 		auto_negotiation_enable  => '1',
 		power_down               => '0',
 		isolate                  => '0',
@@ -92,7 +84,8 @@ architecture rtl of miim_control is
 		unidirectional_enable    => '0'
 	);
 
-	constant auto_negotiation_set_fd : auto_negotiation_advertisement_register_802_3_t := (
+	-- Activate only full-duplex 10/100
+	constant auto_negotiation_set_fd : t_auto_negotiation_advertisement_register_802_3 := (
 		next_page               => '0',
 		remote_fault            => '0',
 		extended_next_page      => '0',
@@ -105,7 +98,8 @@ architecture rtl of miim_control is
 		advertise_10base_t_hd   => '0'
 	);
 
-	constant master_slave_set_fd : master_slave_control_register_t := (
+	-- Activate only full-duplex 1000
+	constant master_slave_set_fd : t_master_slave_control_register := (
 		test_mode_bits                    => "000",
 		master_slave_manual_config_enable => '0',
 		master_slave_manual_config_value  => '0',
@@ -114,9 +108,12 @@ architecture rtl of miim_control is
 		advertise_1000base_t_hd           => '0'
 	);
 
-	signal init_done          : boolean                             := FALSE;
-	signal reset_wait_counter : natural range 0 to RESET_WAIT_TICKS + 1 := 0;
+	signal init_done          : boolean := FALSE;
+	signal reset_wait_counter : natural range 0 to RESET_WAIT_TICKS + 1;
 	signal poll_wait_counter  : natural range 0 to POLL_WAIT_TICKS + 1;
+
+	signal lp_supports_10  : std_ulogic;
+	signal lp_supports_100 : std_ulogic;
 
 begin
 	miim_register_address_o <= register_address;
@@ -200,24 +197,42 @@ begin
 							link_up_o       <= data_to_status_register(miim_data_read_i).link_status and data_to_status_register(miim_data_read_i).auto_negotiation_complete;
 							miim_req_o      <= '0';
 							state           <= WAIT_ACK_LOW;
-							after_ack_state <= READ_SPEED;
+							after_ack_state <= READ_SPEED_10_100;
 						end if;
-					when READ_SPEED =>
-						-- Read speed register
-						register_address <= SPEED_REGISTER;
+					when READ_SPEED_10_100 =>
+						-- Read link partner ability register
+						register_address <= AUTONEG_LP_BASEPAGEABILITY_REG;
 						miim_req_o       <= '1';
 						if miim_ack_i = '1' then
-							miim_req_o       <= '0';
-							speed_o          <= control_register_speed_to_ethernet_speed(miim_data_read_i(SPEED_HIGH_BIT) & miim_data_read_i(SPEED_LOW_BIT));
-							state            <= WAIT_ACK_LOW;
-							--after_ack_state <= WAIT_POLL;
+							miim_req_o      <= '0';
+							lp_supports_10  <= data_to_auto_negotiation_lp_base_page_ability_register(miim_data_read_i).can_10base_t_fd;
+							lp_supports_100 <= data_to_auto_negotiation_lp_base_page_ability_register(miim_data_read_i).can_100base_tx_fd;
+							state           <= WAIT_ACK_LOW;
+							after_ack_state <= READ_SPEED_1000;
+						end if;
+					when READ_SPEED_1000 =>
+						register_address <= MASTERSLAVE_STATUS_REG;
+						miim_req_o       <= '1';
+						if miim_ack_i = '1' then
+							miim_req_o <= '0';
+							-- Detect highest supported data rate
+							if data_to_master_slave_status_register(miim_data_read_i).lp_1000base_t_fd = '1' then
+								speed_o <= SPEED_1000MBPS;
+							elsif lp_supports_100 = '1' then
+								speed_o <= SPEED_100MBPS;
+							elsif lp_supports_10 = '1' then
+								speed_o <= SPEED_10MBPS;
+							else
+								-- Nothing is supported
+								speed_o <= SPEED_UNSPECIFIED;
+							end if;
+
 							register_address <= (others => '0');
 							if DEBUG_OUTPUT = TRUE then
 								after_ack_state <= DEBUG_START;
 							else
 								after_ack_state <= WAIT_POLL;
 							end if;
-							state <= WAIT_ACK_LOW;
 						end if;
 
 					-- Debug states

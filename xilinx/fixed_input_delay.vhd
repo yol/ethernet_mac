@@ -3,6 +3,8 @@
 -- For the full copyright and license information, please read the
 -- LICENSE.md file that was distributed with this source code.
 
+-- Apply a fixed delay to an input pin using IODELAY2
+
 library ieee;
 use ieee.std_logic_1164.all;
 
