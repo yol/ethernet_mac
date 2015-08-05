@@ -33,7 +33,8 @@ NET "mii_tx_clk_i" TNM_NET = mii_tx_clk_i;
 TIMESPEC TS_mii_tx_clk_i = PERIOD "mii_tx_clk_i" 40 ns HIGH 35%;
 NET "mii_rx_clk_i" TNM_NET = mii_rx_clk_i;
 TIMESPEC TS_mii_rx_clk_i = PERIOD "mii_rx_clk_i" 125 MHz HIGH 33%;
-TIMEGRP "mii_in" OFFSET = IN 2.5 ns VALID 3 ns BEFORE "mii_rx_clk_i" RISING;
+#TIMEGRP "mii_in" OFFSET = IN 2.5 ns VALID 3 ns BEFORE "mii_rx_clk_i" RISING;
+TIMEGRP "mii_in" OFFSET = IN 2 ns VALID 2 ns BEFORE "mii_rx_clk_i" RISING;
 
 # Pins
 NET "clock_125_i" LOC = AA12 | IOSTANDARD = LVCMOS33;

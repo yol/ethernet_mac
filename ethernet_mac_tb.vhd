@@ -73,12 +73,6 @@ architecture behavioral of ethernet_mac_tb is
 
 	signal mac_mirror_run : boolean := TRUE;
 
-	type t_mirror_state is (
-		MIRROR_IDLE,
-		MIRROR_READ
-	);
-	signal mirror_state : t_mirror_state := MIRROR_IDLE;
-
 	-- Clock period definitions
 	constant clock_125_period : time := 8 ns;
 	constant clock_25_period  : time := 40 ns;
@@ -366,33 +360,17 @@ begin
 		send_packet_ack <= FALSE;
 	end process;
 
-	fifo_mirror_out : process(mirror_state, rx_empty, tx_data_full, mac_mirror_run, rx_data)
+	-- Process for mirroring packets from the RX FIFO to the TX FIFO
+	-- Asynchronous to avoid complicated buffering on full/empty conditions
+	fifo_mirror_process : process(rx_empty, tx_data_full, mac_mirror_run, rx_data)
 	begin
 		tx_data_wr_en <= '0' after 1 ns;
-		rx_rd_en <= '0' after 1 ns;
-		tx_data <= (others => '0') after 1 ns;
+		rx_rd_en      <= '0' after 1 ns;
+		tx_data       <= (others => '0') after 1 ns;
 		if mac_mirror_run then
-			tx_data <= rx_data after 1 ns;
-			tx_data_wr_en      <= not rx_empty and not tx_data_full after 1 ns;
-			rx_rd_en           <= not rx_empty and not tx_data_full after 1 ns;
-		end if;
-	end process;
-
-	-- Process for mirroring packets from the RX FIFO to the TX FIFO
-	-- Clock signals need to be _identical_ 
-	fifo_mirror_process : process(user_clock)
-	begin
-		if rising_edge(user_clock) and mac_mirror_run then
---			case mirror_state is
---				when MIRROR_IDLE =>
---					if rx_empty = '0' and tx_data_full = '0' then
---						mirror_state <= MIRROR_READ;
---					end if;
---				when MIRROR_READ =>
---					if tx_data_full = '1' or rx_empty = '1' then
---						mirror_state <= MIRROR_IDLE;
---					end if;
---			end case;
+			tx_data       <= rx_data after 1 ns;
+			tx_data_wr_en <= not rx_empty and not tx_data_full after 1 ns;
+			rx_rd_en      <= not rx_empty and not tx_data_full after 1 ns;
 		end if;
 	end process;
 

@@ -65,4 +65,13 @@ xlnx_auto_0_xdb/
 **/ipcore_dir/*.sym
 **/ipcore_dir/*.vho
 **/ipcore_dir/*.ncf
+**/ipcore_dir/*.cgp
+**/ipcore_dir/*.xci
+**/ipcore_dir/*.xise
 **/ipcore_dir/*/
+
+.project
+*.wcfg
+ghdl/
+ethernet_mac_tb
+
