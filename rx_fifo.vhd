@@ -303,7 +303,7 @@ begin
 			-- Default variable value to avoid storage
 			read_address_now := read_address;
 
-			if write_reset_read_side = '1' then
+			if read_reset = '1' then
 				read_state                    <= READ_WAIT_PACKET;
 				read_address                  <= (others => '0');
 				read_end_address              <= (others => '0');
