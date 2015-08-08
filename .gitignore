@@ -67,7 +67,6 @@ xlnx_auto_0_xdb/
 **/ipcore_dir/*.ncf
 **/ipcore_dir/*.cgp
 **/ipcore_dir/*.xci
-**/ipcore_dir/*.xise
 **/ipcore_dir/*/
 
 .project
