@@ -58,17 +58,6 @@ entity ethernet_with_fifos is
 		speed_o          : out   t_ethernet_speed;
 		speed_override_i : in    t_ethernet_speed := SPEED_UNSPECIFIED;
 
-		-- RX FIFO
-		rx_clock_i       : in    std_ulogic;
-		-- Synchronous reset
-		-- When asserted, the content of the buffer was lost.
-		-- When empty is deasserted the next time, a packet size must be read out.
-		-- The data of the packet previously being read out is not available anymore then.
-		rx_reset_o       : out   std_ulogic;
-		rx_empty_o       : out   std_ulogic;
-		rx_rd_en_i       : in    std_ulogic;
-		rx_data_o        : out   t_ethernet_data;
-
 		-- TX FIFO
 		tx_clock_i       : in    std_ulogic;
 		-- Synchronous reset
@@ -78,7 +67,18 @@ entity ethernet_with_fifos is
 		tx_reset_o       : out   std_ulogic;
 		tx_data_i        : in    t_ethernet_data;
 		tx_wr_en_i       : in    std_ulogic;
-		tx_full_o        : out   std_ulogic
+		tx_full_o        : out   std_ulogic;
+
+		-- RX FIFO
+		rx_clock_i       : in    std_ulogic;
+		-- Synchronous reset
+		-- When asserted, the content of the buffer was lost.
+		-- When empty is deasserted the next time, a packet size must be read out.
+		-- The data of the packet previously being read out is not available anymore then.
+		rx_reset_o       : out   std_ulogic;
+		rx_empty_o       : out   std_ulogic;
+		rx_rd_en_i       : in    std_ulogic;
+		rx_data_o        : out   t_ethernet_data
 	);
 end entity;
 
