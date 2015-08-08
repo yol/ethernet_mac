@@ -22,8 +22,8 @@ entity rx_fifo is
 	);
 	port(
 		clock_i                : in  std_ulogic;
-		reset_i                : in  std_ulogic;
 
+		mac_rx_reset_i         : in  std_ulogic;
 		mac_rx_clock_i         : in  std_ulogic;
 		mac_rx_frame_i         : in  std_ulogic;
 		mac_rx_data_i          : in  t_ethernet_data;
@@ -72,21 +72,23 @@ architecture rtl of rx_fifo is
 	signal memory : t_memory;
 
 	-- Signals in write side clock domain
-	signal write_start_address           : t_memory_address := (others => '0');
-	signal write_address                 : t_memory_address := (others => '0');
+	signal write_start_address           : t_memory_address;
+	signal write_address                 : t_memory_address;
 	signal write_packet_length           : t_packet_length;
 	signal write_safe_address            : t_memory_address;
-	signal write_update_safe_address_req : std_ulogic       := '0';
-	signal write_update_safe_address_ack : std_ulogic       := '0';
+	signal write_update_safe_address_req : std_ulogic;
+	signal write_update_safe_address_ack : std_ulogic;
+	signal write_reset_read_side         : std_ulogic;
 
 	-- Signals in read side clock domain
-	signal read_data                    : t_ethernet_data  := (others => '0');
-	signal read_address                 : t_memory_address := (others => '0');
+	signal read_reset                   : std_ulogic := '1';
+	signal read_data                    : t_ethernet_data;
+	signal read_address                 : t_memory_address;
 	-- Address of the last byte that is still part of the currently processed frame in the read process
-	signal read_end_address             : t_memory_address := (others => '0');
+	signal read_end_address             : t_memory_address;
 	signal read_packet_length_high      : unsigned(2 downto 0);
-	signal read_update_safe_address_req : std_ulogic       := '0';
-	signal read_update_safe_address_ack : std_ulogic       := '0';
+	signal read_update_safe_address_req : std_ulogic;
+	signal read_update_safe_address_ack : std_ulogic;
 
 	-- Signals crossing clock domains
 	signal update_safe_address : t_memory_address;
@@ -121,9 +123,16 @@ begin
 			signal_o       => read_update_safe_address_ack
 		);
 
-	write_get_safe_address : process(reset_i, mac_rx_clock_i)
+	sync_reset_inst : entity work.single_signal_synchronizer
+		port map(
+			clock_target_i => clock_i,
+			signal_i       => write_reset_read_side,
+			signal_o       => read_reset
+		);
+
+	write_get_safe_address : process(mac_rx_reset_i, mac_rx_clock_i)
 	begin
-		if reset_i = '1' then
+		if mac_rx_reset_i = '1' then
 			write_update_safe_address_ack <= '0';
 			write_safe_address            <= (others => '1');
 		elsif rising_edge(mac_rx_clock_i) then
@@ -137,17 +146,18 @@ begin
 		end if;
 	end process;
 
-	write_memory : process(reset_i, mac_rx_clock_i)
+	write_memory : process(mac_rx_reset_i, mac_rx_clock_i)
 		variable write_address_now        : t_memory_address;
 		variable write_data               : t_ethernet_data;
 		variable write_enable             : boolean;
 		variable packet_length_calculated : t_packet_length;
 		variable enough_room              : boolean;
 	begin
-		if reset_i = '1' then
-			write_state         <= WRITE_PACKET_INVALID;
-			write_start_address <= (others => '0');
-			write_address       <= (others => '0');
+		if mac_rx_reset_i = '1' then
+			write_state           <= WRITE_PACKET_INVALID;
+			write_start_address   <= (others => '0');
+			write_address         <= (others => '0');
+			write_reset_read_side <= '1';
 		elsif rising_edge(mac_rx_clock_i) then
 			-- Default values for variables so no storage is inferred
 			write_address_now        := write_address;
@@ -158,6 +168,8 @@ begin
 
 			case write_state is
 				when WRITE_WAIT =>
+					-- First byte has definitely been written invalid, read side can go into action now
+					write_reset_read_side <= '0';
 					if mac_rx_frame_i = '1' then
 						if mac_rx_error_i = '1' then
 							write_state <= WRITE_SKIP_FRAME;
@@ -291,11 +303,12 @@ begin
 			-- Default variable value to avoid storage
 			read_address_now := read_address;
 
-			if reset_i = '1' then
-				read_state       <= READ_WAIT_PACKET;
-				read_address     <= (others => '0');
-				read_end_address <= (others => '0');
-				read_data        <= (others => '0');
+			if write_reset_read_side = '1' then
+				read_state                    <= READ_WAIT_PACKET;
+				read_address                  <= (others => '0');
+				read_end_address              <= (others => '0');
+				read_data                     <= (others => '0');
+				read_update_safe_address_req <= '0';
 			else
 				case read_state is
 					when READ_WAIT_PACKET =>

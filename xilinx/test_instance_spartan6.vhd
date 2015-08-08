@@ -3,6 +3,8 @@
 -- For the full copyright and license information, please read the
 -- LICENSE.md file that was distributed with this source code.
 
+-- Instantiate test_mirror and add Spartan 6-specific clock buffering
+
 library ieee;
 use ieee.std_logic_1164.all;
 use ieee.numeric_std.all;
@@ -14,39 +16,27 @@ use unisim.vcomponents.all;
 
 entity test_instance_spartan6 is
 	port(
-		clock_125_i      : in    std_ulogic;
-		reset_i          : in    std_ulogic;
+		clock_125_i      : in  std_ulogic;
+		user_clock_i     : in  std_ulogic;
+		reset_i          : in  std_ulogic;
 
-		mii_tx_clk_i     : in    std_ulogic;
-		mii_tx_er_o      : out   std_ulogic;
-		mii_tx_en_o      : out   std_ulogic;
-		mii_txd_o        : out   std_ulogic_vector(7 downto 0);
-		mii_rx_clk_i     : in    std_ulogic;
-		mii_rx_er_i      : in    std_ulogic;
-		mii_rx_dv_i      : in    std_ulogic;
-		mii_rxd_i        : in    std_ulogic_vector(7 downto 0);
+		mii_tx_clk_i     : in  std_ulogic;
+		mii_tx_er_o      : out std_ulogic;
+		mii_tx_en_o      : out std_ulogic;
+		mii_txd_o        : out std_ulogic_vector(7 downto 0);
+		mii_rx_clk_i     : in  std_ulogic;
+		mii_rx_er_i      : in  std_ulogic;
+		mii_rx_dv_i      : in  std_ulogic;
+		mii_rxd_i        : in  std_ulogic_vector(7 downto 0);
 
-		gmii_gtx_clk_o   : out   std_ulogic;
+		gmii_gtx_clk_o   : out std_ulogic;
 
-		rgmii_tx_ctl_o   : out   std_ulogic;
-		rgmii_rx_ctl_i   : in    std_ulogic;
+		rgmii_tx_ctl_o   : out std_ulogic;
+		rgmii_rx_ctl_i   : in  std_ulogic;
 
-		mdc_o            : out   std_ulogic;
-		mdio_io          : inout std_ulogic;
+		speed_override_i : in  t_ethernet_speed;
 
-		rx_clock_i       : in    std_ulogic;
-		rx_empty_o       : out   std_ulogic;
-		rx_rd_en_i       : in    std_ulogic;
-		rx_data_o        : out   t_ethernet_data;
-
-		tx_clock_i       : in    std_ulogic;
-		tx_data_i        : in    t_ethernet_data;
-		tx_wr_en_i       : in    std_ulogic;
-		tx_full_o        : out   std_ulogic;
-
-		link_up_o        : out   std_ulogic;
-		speed_o          : out   t_ethernet_speed;
-		speed_override_i : in    t_ethernet_speed
+		enable_mirror_i  : in  std_ulogic
 	);
 end entity;
 
@@ -105,9 +95,10 @@ begin
 			RST      => '0'             -- 1-bit input: Active high reset input
 		);
 
-	ethernet_with_fifos_inst : entity work.ethernet_with_fifos
+	test_mirror_inst : entity work.test_mirror
 		port map(
 			clock_125_i      => clock_125_unbuffered,
+			user_clock_i     => clock_125,
 			reset_i          => reset,
 			mii_tx_clk_i     => mii_tx_clk_i,
 			mii_tx_er_o      => mii_tx_er_o,
@@ -120,20 +111,8 @@ begin
 			gmii_gtx_clk_o   => gmii_gtx_clk_o,
 			rgmii_tx_ctl_o   => rgmii_tx_ctl_o,
 			rgmii_rx_ctl_i   => rgmii_rx_ctl_i,
-			miim_clock_i     => clock_125,
-			mdc_o            => mdc_o,
-			mdio_io          => mdio_io,
-			rx_clock_i       => rx_clock_i,
-			rx_empty_o       => rx_empty_o,
-			rx_rd_en_i       => rx_rd_en_i,
-			rx_data_o        => rx_data_o,
-			tx_clock_i       => tx_clock_i,
-			tx_data_i        => tx_data_i,
-			tx_wr_en_i       => tx_wr_en_i,
-			tx_full_o        => tx_full_o,
-			link_up_o        => link_up_o,
-			speed_o          => speed_o,
-			speed_override_i => speed_override_i
+			speed_override_i => speed_override_i,
+			enable_mirror_i  => enable_mirror_i
 		);
 
 end architecture;

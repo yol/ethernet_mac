@@ -14,9 +14,10 @@ use work.ethernet_types.all;
 
 entity mii_gmii is
 	port(
-		reset_i            : in  std_ulogic;
-		rx_clock_i         : in  std_ulogic;
+		tx_reset_i         : in  std_ulogic;
 		tx_clock_i         : in  std_ulogic;
+		rx_reset_i         : in  std_ulogic;
+		rx_clock_i         : in  std_ulogic;
 
 		-- MII (Media-independent interface)
 		mii_tx_en_o        : out std_ulogic;
@@ -36,7 +37,7 @@ entity mii_gmii is
 		-- mii_rxd_i[3:0] is RD[3:0]
 
 		-- Interface control signals
-		-- Synchronous to clock_125_i
+		-- Must stay stable after tx_reset_i or rx_reset_i is deasserted
 		speed_select_i     : in  t_ethernet_speed;
 
 		-- TX/RX control
@@ -80,38 +81,13 @@ architecture rtl of mii_gmii is
 
 	signal tx_data : t_ethernet_data;
 
-	signal speed_select_tx_ff : t_ethernet_speed;
-	signal speed_select_tx    : t_ethernet_speed;
-
-	signal speed_select_rx_ff   : t_ethernet_speed;
-	signal speed_select_rx      : t_ethernet_speed;
-	signal last_speed_select_rx : t_ethernet_speed;
-
 begin
 
-	-- Bring signals from clock_125_i to clock_rx clock domain
-	clock_125_to_clock_rx : process(rx_clock_i)
-	begin
-		if rising_edge(rx_clock_i) then
-			speed_select_rx_ff <= speed_select_i;
-			speed_select_rx    <= speed_select_rx_ff;
-		end if;
-	end process;
-
-	-- Bring signals from clock_125_i to clock_rx clock domain
-	clock_125_to_clock_tx : process(tx_clock_i)
-	begin
-		if rising_edge(tx_clock_i) then
-			speed_select_tx_ff <= speed_select_i;
-			speed_select_tx    <= speed_select_tx_ff;
-		end if;
-	end process;
-
 	-- Use asynchronous reset, clock_tx is not guaranteed to be running during system initialization
-	mii_gmii_tx_fsm_sync : process(reset_i, tx_clock_i)
+	mii_gmii_tx_fsm_sync : process(tx_reset_i, tx_clock_i)
 	begin
-		if reset_i = '1' then
-			tx_state <= TX_IDLE;
+		if tx_reset_i = '1' then
+			tx_state    <= TX_IDLE;
 		elsif rising_edge(tx_clock_i) then
 			-- Capture data on clock edges
 			if tx_next_state = TX_GMII or tx_next_state = TX_MII_LO_QUAD then
@@ -181,7 +157,7 @@ begin
 		end case;
 	end process;
 
-	mii_gmii_tx_next_state : process(tx_state, tx_enable_i, speed_select_tx, inter_packet_gap_counter)
+	mii_gmii_tx_next_state : process(tx_state, tx_enable_i, speed_select_i, inter_packet_gap_counter)
 	begin
 		-- Retain state by default
 		tx_next_state <= tx_state;
@@ -189,7 +165,7 @@ begin
 		case tx_state is
 			when TX_IDLE =>
 				if tx_enable_i = '1' then
-					case speed_select_tx is
+					case speed_select_i is
 						when SPEED_1000MBPS =>
 							tx_next_state <= TX_GMII;
 						when others =>
@@ -211,7 +187,7 @@ begin
 			when TX_INTER_PACKET_GAP =>
 				if inter_packet_gap_counter = INTER_PACKET_GAP_BYTES - 1 then
 					tx_next_state <= TX_IDLE;
-				elsif speed_select_tx /= SPEED_1000MBPS then
+				elsif speed_select_i /= SPEED_1000MBPS then
 					tx_next_state <= TX_INTER_PACKET_GAP_MII_HI_QUAD;
 				end if;
 			when TX_INTER_PACKET_GAP_MII_HI_QUAD =>
@@ -220,15 +196,12 @@ begin
 	end process;
 
 	-- MII/GMII packet reception
-	mii_gmii_rx_fsm : process(rx_clock_i, reset_i)
+	mii_gmii_rx_fsm : process(rx_clock_i, rx_reset_i)
 	begin
-		if reset_i = '1' then
+		if rx_reset_i = '1' then
 			rx_state           <= RX_INIT;
 			rx_byte_received_o <= '0';
 		elsif rising_edge(rx_clock_i) then
-			-- Remember last speed to detect speed changes
-			last_speed_select_rx <= speed_select_rx;
-
 			rx_frame_o         <= '0';
 			rx_byte_received_o <= '0';
 			rx_error_o         <= '0';
@@ -242,7 +215,7 @@ begin
 				when RX_INIT =>
 					-- Wait for a pause in reception
 					if mii_rx_dv_i = '0' then
-						case speed_select_rx is
+						case speed_select_i is
 							when SPEED_1000MBPS =>
 								rx_state <= RX_GMII;
 							when others =>
@@ -271,15 +244,6 @@ begin
 					end if;
 					rx_state <= RX_MII_LO_QUAD;
 			end case;
-
-			if last_speed_select_rx /= speed_select_rx then
-				-- Output an error to throw the frame away at the receiver
-				-- if speed transition occurs while receiving
-				if mii_rx_dv_i = '1' then
-					rx_error_o <= '1';
-				end if;
-				rx_state <= RX_INIT;
-			end if;
 		end if;
 	end process;
 

@@ -20,29 +20,23 @@ end entity;
 architecture behavioral of ethernet_mac_tb is
 
 	-- ethernet_with_fifos signals
-	signal clock_125     : std_ulogic                    := '0';
-	signal reset         : std_ulogic                    := '1';
-	signal mii_tx_clk    : std_ulogic                    := '0';
-	signal mii_tx_er     : std_ulogic                    := '0';
-	signal mii_tx_en     : std_ulogic                    := '0';
-	signal mii_txd       : std_ulogic_vector(7 downto 0) := (others => '0');
-	signal mii_rx_clk    : std_ulogic                    := '0';
-	signal mii_rx_er     : std_ulogic                    := '0';
-	signal mii_rx_dv     : std_ulogic                    := '0';
-	signal mii_rxd       : std_ulogic_vector(7 downto 0) := (others => '0');
-	signal gmii_gtx_clk  : std_ulogic                    := '0';
-	signal user_clock    : std_ulogic                    := '0';
-	signal rx_empty      : std_ulogic                    := '0';
-	signal rx_rd_en      : std_ulogic                    := '0';
-	signal rx_data       : t_ethernet_data               := (others => '0');
-	signal tx_data       : t_ethernet_data               := (others => '0');
-	signal tx_data_wr_en : std_ulogic                    := '0';
-	signal tx_data_full  : std_ulogic                    := '0';
-	signal link_up       : std_ulogic                    := '0';
-	signal speed         : t_ethernet_speed              := (others => '0');
+	signal clock_125    : std_ulogic                    := '0';
+	signal reset        : std_ulogic                    := '1';
+	signal mii_tx_clk   : std_ulogic                    := '0';
+	signal mii_tx_er    : std_ulogic                    := '0';
+	signal mii_tx_en    : std_ulogic                    := '0';
+	signal mii_txd      : std_ulogic_vector(7 downto 0) := (others => '0');
+	signal mii_rx_clk   : std_ulogic                    := '0';
+	signal mii_rx_er    : std_ulogic                    := '0';
+	signal mii_rx_dv    : std_ulogic                    := '0';
+	signal mii_rxd      : std_ulogic_vector(7 downto 0) := (others => '0');
+	signal gmii_gtx_clk : std_ulogic                    := '0';
+	signal user_clock   : std_ulogic                    := '0';
 
 	-- Test configuration
+	-- Setting to TRUE enables test of all packet sizes from 1 to 1528
 	constant TEST_THOROUGH : boolean := FALSE;
+	constant TEST_MII_SETUPHOLD : boolean := FALSE;
 
 	-- Testbench signals
 	signal run : boolean := TRUE;
@@ -51,8 +45,8 @@ architecture behavioral of ethernet_mac_tb is
 
 	-- Data array length is a bit on the large side so we can send jumbo frames
 	type t_packet_data is array (0 to 10000) of t_ethernet_data;
-	--type t_packet_data is array (0 to 1050) of ethernet_data_t;
-	--type t_packet_data is array (0 to 60) of ethernet_data_t;
+	--type t_packet_data is array (0 to 1050) of t_ethernet_data;
+	--type t_packet_data is array (0 to 70) of t_ethernet_data;
 	type t_packet_transaction is record
 		valid : boolean;
 		data  : t_packet_data;
@@ -71,7 +65,7 @@ architecture behavioral of ethernet_mac_tb is
 	signal receive_packet_buffer         : t_packet_buffer;
 	signal receive_packet_count_expected : integer := 0;
 
-	signal mac_mirror_run : boolean := TRUE;
+	signal mac_mirror_run : std_ulogic := '1';
 
 	-- Timing definitions
 	constant clock_125_period : time := 8 ns;
@@ -192,9 +186,10 @@ begin
 	user_clock <= clock_125;
 
 	-- Instantiate component
-	ethernet_mac_inst : entity work.ethernet_with_fifos --work.test_wrapper_spartan6 
+	ethernet_mac_inst : entity work.test_mirror --work.test_wrapper_spartan6
 		port map(
 			clock_125_i      => clock_125,
+			user_clock_i     => user_clock,
 			reset_i          => reset,
 			mii_tx_clk_i     => mii_tx_clk,
 			mii_tx_er_o      => mii_tx_er,
@@ -207,20 +202,8 @@ begin
 			gmii_gtx_clk_o   => gmii_gtx_clk,
 			rgmii_tx_ctl_o   => open,
 			rgmii_rx_ctl_i   => '0',
-			miim_clock_i     => clock_125,
-			mdc_o            => open,
-			mdio_io          => open,
-			rx_clock_i       => user_clock,
-			rx_empty_o       => rx_empty,
-			rx_rd_en_i       => rx_rd_en,
-			rx_data_o        => rx_data,
-			tx_clock_i       => user_clock,
-			tx_data_i        => tx_data,
-			tx_wr_en_i       => tx_data_wr_en,
-			tx_full_o        => tx_data_full,
-			link_up_o        => link_up,
-			speed_o          => speed,
-			speed_override_i => speed_override
+			speed_override_i => speed_override,
+			enable_mirror_i  => mac_mirror_run
 		);
 
 	-- Generate clocks
@@ -253,32 +236,33 @@ begin
 
 	-- Process for stimulating the MII RX interface
 	packet_send_process : process is
-		-- lolisim
-		-- crashes if (others => '0') is used instead of "00000000"
 		procedure mii_rx_cycle(data : in std_ulogic_vector(7 downto 0) := "XXXXXXXX";
 			                   dv   : in std_ulogic                    := '1';
 			                   er   : in std_ulogic                    := '0') is
 		begin
-			-- Setup/hold time simulation is only useful in post-synthesis simulation
-			--			mii_rx_clk <= '0';
-			--			wait for (mii_rx_clk_period / 2) - mii_rx_setup;
-			--			mii_rx_dv <= dv;
-			--			mii_rx_er <= er;
-			--			mii_rxd   <= data;
-			--			wait for mii_rx_setup;
-			--			mii_rx_clk <= '1';
-			--			wait for mii_rx_hold;
-			--			mii_rxd   <= (others => 'X');
-			--			mii_rx_dv <= 'X';
-			--			mii_rx_er <= 'X';
-			--			wait for (mii_rx_clk_period / 2) - mii_rx_hold;
-			mii_rx_clk <= '0';
-			mii_rx_dv  <= dv;
-			mii_rx_er  <= er;
-			mii_rxd    <= data;
-			wait for mii_rx_clk_period / 2;
-			mii_rx_clk <= '1';
-			wait for mii_rx_clk_period / 2;
+			if TEST_MII_SETUPHOLD then
+				-- Setup/hold time simulation is only useful in post-synthesis simulation
+				mii_rx_clk <= '0';
+				wait for (mii_rx_clk_period / 2) - mii_rx_setup;
+				mii_rx_dv <= dv;
+				mii_rx_er <= er;
+				mii_rxd   <= data;
+				wait for mii_rx_setup;
+				mii_rx_clk <= '1';
+				wait for mii_rx_hold;
+				mii_rxd   <= (others => 'X');
+				mii_rx_dv <= 'X';
+				mii_rx_er <= 'X';
+				wait for (mii_rx_clk_period / 2) - mii_rx_hold;
+			else
+				mii_rx_clk <= '0';
+				mii_rx_dv  <= dv;
+				mii_rx_er  <= er;
+				mii_rxd    <= data;
+				wait for mii_rx_clk_period / 2;
+				mii_rx_clk <= '1';
+				wait for mii_rx_clk_period / 2;
+			end if;
 		end procedure;
 
 		procedure mii_rx_put(
@@ -299,7 +283,7 @@ begin
 			mii_rx_put(dv => '0', er => '0', data => open);
 		end procedure;
 
-		variable fcs : std_ulogic_vector(31 downto 0);
+		variable fcs : t_crc32;
 	begin
 		while not send_packet_req loop
 			mii_rx_toggle;
@@ -347,25 +331,12 @@ begin
 		send_packet_ack <= FALSE;
 	end process;
 
-	-- Process for mirroring packets from the RX FIFO to the TX FIFO
-	-- Asynchronous to avoid complicated buffering on full/empty conditions
-	fifo_mirror_process : process(rx_empty, tx_data_full, mac_mirror_run, rx_data)
-	begin
-		tx_data_wr_en <= '0' after 1 ns;
-		rx_rd_en      <= '0' after 1 ns;
-		tx_data       <= (others => '0') after 1 ns;
-		if mac_mirror_run then
-			tx_data       <= rx_data after 1 ns;
-			tx_data_wr_en <= not rx_empty and not tx_data_full after 1 ns;
-			rx_rd_en      <= not rx_empty and not tx_data_full after 1 ns;
-		end if;
-	end process;
-
 	-- Process for reading the MII TX interface into a packet buffer
 	packet_receive_process : process is
-		variable current_byte : integer := 0;
+		variable current_byte : integer;
 		variable data         : t_ethernet_data;
-		variable fcs          : std_ulogic_vector(31 downto 0);
+		variable fcs          : t_crc32;
+		variable ipg_count    : integer;
 
 		procedure wait_clk is
 		begin
@@ -404,15 +375,21 @@ begin
 
 		packet_loop : for current_packet_i in 0 to receive_packet_count_expected - 1 loop
 			current_byte := 0;
+			ipg_count    := 0;
 			-- Wait for beginning of frame
 			loop
 				wait_clk;
 				-- Allow receive cancellation
 				exit packet_loop when not receive_packet_req;
 				exit when mii_tx_en = '1';
+				if ipg_count < INTER_PACKET_GAP_BYTES then
+					ipg_count := ipg_count + 1;
+				end if;
 			end loop;
 
-			report "Start packet reception" severity note;
+			assert ipg_count = INTER_PACKET_GAP_BYTES report "Inter-packet gap too short" severity failure;
+
+			--report "Start packet reception" severity note;
 
 			for i in 0 to 6 loop
 				read_byte(data);
@@ -443,7 +420,7 @@ begin
 
 			receive_packet_buffer(current_packet_i).size  <= current_byte;
 			receive_packet_buffer(current_packet_i).valid <= TRUE;
-			report "Received packet index " & integer'image(current_packet_i) & " size " & integer'image(current_byte) severity note;
+		--report "Received packet index " & integer'image(current_packet_i) & " size " & integer'image(current_byte) severity note;
 		--assert current_packet_i < receive_packet_buffer'high report "Too many packets were transmitted";
 		end loop;
 
@@ -558,7 +535,7 @@ begin
 					test_broken_size(MAX_FRAME_DATA_BYTES + 2);
 				end if;
 				-- Test size that overflows 11 bits of size information in FIFOs
-				test_broken_size(2 ** 11 + 1);
+				test_broken_size(2 ** 11 + 70);
 				-- Test size that is greater than total RX buffer size
 				test_broken_size(9999);
 				-- Test wrong FCS
@@ -578,7 +555,7 @@ begin
 				send_packet_buffer(i).size  <= 1024;
 			end loop;
 			-- Suspend FIFO reader
-			mac_mirror_run <= FALSE;
+			mac_mirror_run <= '0';
 
 			report "Check RX FIFO overrun: Fill FIFO" severity note;
 			-- Fill FIFO
@@ -588,7 +565,7 @@ begin
 			-- One more than really expected (3)
 			receive_packet_count_expected <= 4;
 			-- Resume FIFO reader
-			mac_mirror_run                <= TRUE;
+			mac_mirror_run                <= '1';
 			report "Check RX FIFO overrun: Receive mirrored packets" severity note;
 			-- Wait for 3rd packet received
 			wait until receive_packet_buffer(2).valid;
@@ -609,12 +586,11 @@ begin
 		-- TODO: Check for correct FIFO function when it is filled up exactly to the last byte
 		end procedure;
 	begin
-		report "Hello" severity note;
 		reset          <= '1';
 		speed_override <= SPEED_1000MBPS;
-		wait for 1000 ns;
+		wait for 100 ns;
 		reset <= '0';
-		wait for 1000 ns;
+		wait for 1 us;
 
 		for packet_i in send_packet_buffer'range loop
 			for i in t_packet_data'range loop

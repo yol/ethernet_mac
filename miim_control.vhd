@@ -65,7 +65,7 @@ architecture rtl of miim_control is
 		DEBUG_DONE
 	);
 	signal state           : t_state := RESET_WAIT;
-	signal after_ack_state : t_state := DEBUG_DONE;
+	signal after_ack_state : t_state;
 
 	-- Initial register write contents
 
@@ -124,17 +124,15 @@ begin
 			-- Default values
 			miim_req_o      <= '0';
 			debug_fifo_we_o <= '0';
-			miim_we_o       <= '0';
 
 			if reset_i = '1' then
 				state              <= RESET_WAIT;
-				after_ack_state    <= DEBUG_DONE;
 				link_up_o          <= '0';
-				speed_o            <= work.ethernet_types.SPEED_1000MBPS;
+				speed_o            <= SPEED_UNSPECIFIED;
 				reset_wait_counter <= 0;
 				poll_wait_counter  <= 0;
 			else
-				miim_req_o <= '0';
+				miim_we_o       <= '0';
 				case state is
 					-- Initialization
 					when RESET_WAIT =>
@@ -185,8 +183,8 @@ begin
 						-- Don't poll continuously to reduce unnecessary switching noise
 						poll_wait_counter <= poll_wait_counter + 1;
 						if poll_wait_counter = POLL_WAIT_TICKS then
-							-- poll_wait_counter is now zero again
-							state <= READ_STATUS;
+							poll_wait_counter <= 0;
+							state             <= READ_STATUS;
 						end if;
 					when READ_STATUS =>
 						-- Read status register
@@ -227,6 +225,7 @@ begin
 								speed_o <= SPEED_UNSPECIFIED;
 							end if;
 
+							state            <= WAIT_ACK_LOW;
 							register_address <= (others => '0');
 							if DEBUG_OUTPUT = TRUE then
 								after_ack_state <= DEBUG_START;

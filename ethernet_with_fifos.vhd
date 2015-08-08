@@ -19,6 +19,7 @@ entity ethernet_with_fifos is
 		-- See comment in miim for values
 		-- Default is fine for 125 MHz MIIM clock
 		MIIM_CLOCK_DIVIDER    : positive      := 50;
+		MIIM_DISABLE          : boolean       := FALSE;
 
 		-- See comment in rx_fifo for values
 		RX_FIFO_SIZE_BITS     : positive      := 12
@@ -59,12 +60,22 @@ entity ethernet_with_fifos is
 
 		-- RX FIFO
 		rx_clock_i       : in    std_ulogic;
+		-- Synchronous reset
+		-- When asserted, the content of the buffer was lost.
+		-- When empty is deasserted the next time, a packet size must be read out.
+		-- The data of the packet previously being read out is not available anymore then.
+		rx_reset_o       : out   std_ulogic;
 		rx_empty_o       : out   std_ulogic;
 		rx_rd_en_i       : in    std_ulogic;
 		rx_data_o        : out   t_ethernet_data;
 
 		-- TX FIFO
 		tx_clock_i       : in    std_ulogic;
+		-- Synchronous reset
+		-- When asserted, the content of the buffer was lost.
+		-- When full is deasserted the next time, a packet size must be written.
+		-- The data of the packet previously being written is not available anymore then.
+		tx_reset_o       : out   std_ulogic;
 		tx_data_i        : in    t_ethernet_data;
 		tx_wr_en_i       : in    std_ulogic;
 		tx_full_o        : out   std_ulogic
@@ -72,11 +83,15 @@ entity ethernet_with_fifos is
 end entity;
 
 architecture rtl of ethernet_with_fifos is
+	signal mac_reset : std_ulogic := '1';
+
+	signal mac_tx_reset         : std_ulogic := '1';
 	signal mac_tx_clock         : std_ulogic;
 	signal mac_tx_enable        : std_ulogic := '0';
 	signal mac_tx_data          : t_ethernet_data;
 	signal mac_tx_byte_sent     : std_ulogic;
 	signal mac_tx_busy          : std_ulogic;
+	signal mac_rx_reset         : std_ulogic := '1';
 	signal mac_rx_clock         : std_ulogic;
 	signal mac_rx_frame         : std_ulogic;
 	signal mac_rx_data          : t_ethernet_data;
@@ -84,16 +99,34 @@ architecture rtl of ethernet_with_fifos is
 	signal mac_rx_error         : std_ulogic;
 
 begin
+
+	-- Synchronize user resets
+	sync_tx_reset_inst : entity work.single_signal_synchronizer
+		port map(
+			clock_target_i => tx_clock_i,
+			signal_i       => mac_reset,
+			signal_o       => tx_reset_o
+		);
+
+	sync_rx_reset_inst : entity work.single_signal_synchronizer
+		port map(
+			clock_target_i => rx_clock_i,
+			signal_i       => mac_reset,
+			signal_o       => rx_reset_o
+		);
+
 	ethernet_inst : entity work.ethernet
 		generic map(
 			MIIM_PHY_ADDRESS      => MIIM_PHY_ADDRESS,
 			MIIM_RESET_WAIT_TICKS => MIIM_RESET_WAIT_TICKS,
 			MIIM_POLL_WAIT_TICKS  => MIIM_POLL_WAIT_TICKS,
-			MIIM_CLOCK_DIVIDER    => MIIM_CLOCK_DIVIDER
+			MIIM_CLOCK_DIVIDER    => MIIM_CLOCK_DIVIDER,
+			MIIM_DISABLE          => MIIM_DISABLE
 		)
 		port map(
 			clock_125_i        => clock_125_i,
 			reset_i            => reset_i,
+			reset_o            => mac_reset,
 			mii_tx_clk_i       => mii_tx_clk_i,
 			mii_tx_er_o        => mii_tx_er_o,
 			mii_tx_en_o        => mii_tx_en_o,
@@ -108,11 +141,13 @@ begin
 			miim_clock_i       => miim_clock_i,
 			mdc_o              => mdc_o,
 			mdio_io            => mdio_io,
+			tx_reset_o         => mac_tx_reset,
 			tx_clock_o         => mac_tx_clock,
 			tx_enable_i        => mac_tx_enable,
 			tx_data_i          => mac_tx_data,
 			tx_byte_sent_o     => mac_tx_byte_sent,
 			tx_busy_o          => mac_tx_busy,
+			rx_reset_o         => mac_rx_reset,
 			rx_clock_o         => mac_rx_clock,
 			rx_frame_o         => mac_rx_frame,
 			rx_data_o          => mac_rx_data,
@@ -129,7 +164,7 @@ begin
 		)
 		port map(
 			clock_i                => rx_clock_i,
-			reset_i                => reset_i,
+			mac_rx_reset_i         => mac_rx_reset,
 			mac_rx_clock_i         => mac_rx_clock,
 			mac_rx_frame_i         => mac_rx_frame,
 			mac_rx_data_i          => mac_rx_data,
@@ -143,10 +178,10 @@ begin
 	tx_fifo_inst : entity work.tx_fifo
 		port map(
 			clock_i            => tx_clock_i,
-			reset_i            => reset_i,
 			data_i             => tx_data_i,
 			wr_en_i            => tx_wr_en_i,
 			full_o             => tx_full_o,
+			mac_tx_reset_i     => mac_tx_reset,
 			mac_tx_clock_i     => mac_tx_clock,
 			mac_tx_enable_o    => mac_tx_enable,
 			mac_tx_data_o      => mac_tx_data,

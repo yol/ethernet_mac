@@ -13,9 +13,8 @@ use work.ethernet_types.all;
 
 entity tx_fifo_adapter is
 	port(
-		reset_i            : in  std_ulogic;
-
 		-- Interface to framing layer
+		mac_tx_reset_i     : in  std_ulogic;
 		mac_tx_clock_i     : in  std_ulogic;
 		mac_tx_enable_o    : out std_ulogic;
 		mac_tx_data_o      : out t_ethernet_data;
@@ -54,10 +53,9 @@ architecture rtl of tx_fifo_adapter is
 begin
 	rd_en_o <= rd_en;
 
-	send_proc : process(reset_i, mac_tx_clock_i)
-	--		variable first : boolean := TRUE;
+	send_proc : process(mac_tx_reset_i, mac_tx_clock_i)
 	begin
-		if reset_i = '1' then
+		if mac_tx_reset_i = '1' then
 			state           <= READ_SIZE_HIGH;
 			rd_en           <= '0';
 			mac_tx_enable_o <= '0';

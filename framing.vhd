@@ -14,9 +14,9 @@ use work.utility.all;
 
 entity framing is
 	port(
-		reset_i                : in  std_logic;
-
+		tx_reset_i                : in  std_ulogic;
 		tx_clock_i             : in  std_ulogic;
+		rx_reset_i             : in std_ulogic;
 		rx_clock_i             : in  std_ulogic;
 
 		-- TX from client logic
@@ -69,7 +69,7 @@ architecture rtl of framing is
 
 	signal tx_state      : t_tx_state := TX_IDLE;
 	signal tx_next_state : t_tx_state := TX_IDLE;
-	signal tx_enable     : std_ulogic := '0';
+	--signal tx_enable     : std_ulogic := '0';
 	signal tx_data       : t_ethernet_data;
 	signal mii_tx_data   : t_ethernet_data;
 
@@ -93,7 +93,7 @@ architecture rtl of framing is
 begin
 	mii_tx_data_o <= mii_tx_data;
 
-	tx_fsm_output : process(tx_state, tx_enable, tx_enable_i, tx_padding_required, tx_data, mii_tx_busy_i, mii_tx_byte_sent_i, tx_frame_check_sequence)
+	tx_fsm_output : process(tx_state, tx_enable_i, tx_padding_required, tx_data, mii_tx_busy_i, mii_tx_byte_sent_i, tx_frame_check_sequence)
 	begin
 		tx_next_state <= tx_state;
 
@@ -110,8 +110,10 @@ begin
 		-- State transition is guarded by mii_tx_byte_sent_i
 		case tx_state is
 			when TX_IDLE =>
-				if tx_enable = '1' then
+				if tx_enable_i = '1' then
 					tx_next_state <= TX_PREAMBLE1;
+					--mii_tx_data <= PREAMBLE_DATA;
+					--mii_tx_enable_o <= '1';
 				end if;
 			when TX_PREAMBLE1 | TX_PREAMBLE2 | TX_PREAMBLE3 | TX_PREAMBLE4 | TX_PREAMBLE5 | TX_PREAMBLE6 =>
 				tx_next_state <= t_tx_state'succ(tx_state);
@@ -156,16 +158,15 @@ begin
 		end case;
 	end process;
 
-	tx_fsm_sync : process(reset_i, tx_clock_i)
+	tx_fsm_sync : process(tx_reset_i, tx_clock_i)
 	begin
-		-- Asynchronous reset, tx_clock is not guaranteed to be running
-		if reset_i = '1' then
+		if tx_reset_i = '1' then
 			tx_state <= TX_IDLE;
 		elsif rising_edge(tx_clock_i) then
 			if tx_state = TX_IDLE or mii_tx_byte_sent_i = '1' then
 				tx_state  <= tx_next_state;
 				tx_data   <= tx_data_i;
-				tx_enable <= tx_enable_i;
+				--tx_enable <= tx_enable_i;
 
 				case tx_next_state is
 					when TX_START_FRAME_DELIMITER =>
@@ -193,9 +194,9 @@ begin
 		end if;
 	end process;
 
-	rx_fsm_sync : process(reset_i, rx_clock_i)
+	rx_fsm_sync : process(rx_reset_i, rx_clock_i)
 	begin
-		if reset_i = '1' then
+		if rx_reset_i = '1' then
 			rx_state <= RX_WAIT_START_FRAME_DELIMITER;
 		elsif rising_edge(rx_clock_i) then
 			rx_error_o         <= '0';

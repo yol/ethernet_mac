@@ -11,9 +11,12 @@ use ieee.std_logic_1164.all;
 architecture simple of single_signal_synchronizer is
 	signal signal_tmp : std_ulogic := '0';
 begin
-	process(clock_target_i)
+	process(clock_target_i, preset_i)
 	begin
-		if rising_edge(clock_target_i) then
+		if preset_i = '1' then
+			signal_tmp <= '1';
+			signal_o   <= '1';
+		elsif rising_edge(clock_target_i) then
 			signal_tmp <= signal_i;
 			signal_o   <= signal_tmp;
 		end if;

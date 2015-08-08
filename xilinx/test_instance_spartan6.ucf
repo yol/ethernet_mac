@@ -1,7 +1,7 @@
 # Timing
 NET "clock_125_i" TNM_NET = "clock_125_i";
-NET "rx_clock_i" TNM_NET = "clock_125_i";
-NET "tx_clock_i" TNM_NET = "clock_125_i";
+#NET "rx_clock_i" TNM_NET = "clock_125_i";
+#NET "tx_clock_i" TNM_NET = "clock_125_i";
 TIMESPEC TS_clock_125_in = PERIOD "clock_125_i" 125 MHz HIGH 50% INPUT_JITTER 80 ps;
 
 NET "mii_tx_er_o" TNM = "gmii_out";
@@ -38,8 +38,8 @@ TIMEGRP "mii_in" OFFSET = IN 2 ns VALID 2 ns BEFORE "mii_rx_clk_i" RISING;
 
 # Pins
 NET "clock_125_i" LOC = AA12 | IOSTANDARD = LVCMOS33;
-NET "mdc_o" LOC = AA2 | IOSTANDARD = LVCMOS33;
-NET "mdio_io" LOC = AB3 | IOSTANDARD = LVCMOS33;
+#NET "mdc_o" LOC = AA2 | IOSTANDARD = LVCMOS33;
+#NET "mdio_io" LOC = AB3 | IOSTANDARD = LVCMOS33;
 
 NET "gmii_gtx_clk_o" LOC = R11 | IOSTANDARD = LVCMOS33;
 NET "mii_tx_en_o" LOC = AB16 | IOSTANDARD = LVCMOS33;

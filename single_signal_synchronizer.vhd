@@ -12,7 +12,11 @@ use ieee.std_logic_1164.all;
 entity single_signal_synchronizer is
 	port(
 		clock_target_i : in  std_ulogic;
+		-- Asynchronous preset of the output and synchronizer flip-flops
+		preset_i       : in  std_ulogic := '0';
+		-- Asynchronous signal input
 		signal_i       : in  std_ulogic;
+		-- Synchronous signal output
 		signal_o       : out std_ulogic
 	);
 end entity;
