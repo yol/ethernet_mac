@@ -31,6 +31,7 @@ end entity;
 
 architecture rtl of reset_generator is
 	type t_state is (
+		INIT,
 		WATCH,
 		RESET
 	);
@@ -49,6 +50,8 @@ begin
 			reset_o    <= '0';
 
 			case state is
+				when INIT =>
+					state <= WATCH;
 				when WATCH =>
 					null;
 				when RESET =>
@@ -60,7 +63,7 @@ begin
 					end if;
 			end case;
 
-			if speed_i /= last_speed and last_speed /= SPEED_UNSPECIFIED then
+			if speed_i /= last_speed and state /= INIT then
 				-- Speed was changed
 				state         <= RESET;
 				-- Always reset counter
