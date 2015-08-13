@@ -45,7 +45,7 @@ entity mii_gmii is
 		tx_enable_i        : in  std_ulogic;
 		-- When asserted together with tx_enable_i, tx_byte_sent_o works as normal, but no data is actually
 		-- put onto the media-independent interface (for IPG transmission)
-		tx_gap_i : in std_ulogic;
+		tx_gap_i           : in  std_ulogic;
 		tx_data_i          : in  t_ethernet_data;
 		-- Put next data byte on tx_data_i when asserted
 		tx_byte_sent_o     : out std_ulogic;
@@ -63,15 +63,12 @@ end entity;
 architecture rtl of mii_gmii is
 	-- Transmission
 	type t_mii_gmii_tx_state is (
-		TX_IDLE,
+		TX_INIT,
 		TX_GMII,
 		TX_MII_LO_QUAD,
 		TX_MII_HI_QUAD
 	);
-	signal tx_state      : t_mii_gmii_tx_state := TX_IDLE;
-	signal tx_next_state : t_mii_gmii_tx_state := TX_IDLE;
-	signal tx_gap: std_ulogic;
-	signal tx_data : t_ethernet_data;
+	signal tx_state : t_mii_gmii_tx_state := TX_INIT;
 
 	-- Reception
 	type t_mii_gmii_rx_state is (
@@ -84,83 +81,73 @@ architecture rtl of mii_gmii is
 
 begin
 
-	-- Use asynchronous reset, clock_tx is not guaranteed to be running during system initialization
-	mii_gmii_tx_fsm_sync : process(tx_reset_i, tx_clock_i)
+	-- TX FSM is split into this synchronous process and the output process for tx_byte_sent_o
+	-- A strictly one-process FSM is impractical for MII transmission: Wait states would be needed
+	-- to correctly generate tx_byte_sent_o for GMII. 
+	mii_gmii_tx_sync : process(tx_reset_i, tx_clock_i)
 	begin
+		-- Use asynchronous reset, clock_tx is not guaranteed to be running during system initialization
 		if tx_reset_i = '1' then
-			tx_state    <= TX_IDLE;
+			tx_state    <= TX_INIT;
+			mii_tx_en_o <= '0';
 		elsif rising_edge(tx_clock_i) then
-			-- Capture data on clock edges
-			if tx_next_state = TX_GMII or tx_next_state = TX_MII_LO_QUAD then
-				tx_data <= tx_data_i;
-				tx_gap <= tx_gap_i;
-			end if;
+			mii_tx_en_o <= '0';
+			mii_txd_o   <= (others => '0');
 
-			-- Advance state
-			tx_state <= tx_next_state;
+			case tx_state is
+				when TX_INIT =>
+					case speed_select_i is
+						when SPEED_1000MBPS =>
+							tx_state <= TX_GMII;
+						when others =>
+							tx_state <= TX_MII_LO_QUAD;
+					end case;
+				when TX_GMII =>
+					-- GMII is very simple: Pass data through when
+					-- tx_enable_i is asserted
+					mii_tx_en_o <= tx_enable_i and not tx_gap_i;
+					mii_txd_o   <= tx_data_i;
+				when TX_MII_LO_QUAD =>
+					mii_tx_en_o <= tx_enable_i and not tx_gap_i;
+					mii_txd_o   <= "0000" & tx_data_i(3 downto 0);
+					if tx_enable_i = '1' then
+						-- Advance to high quad only when data was actually sent
+						tx_state <= TX_MII_HI_QUAD;
+					end if;
+				when TX_MII_HI_QUAD =>
+					-- tx_enable_i is not considered, a full byte always has to be sent
+					mii_tx_en_o <= not tx_gap_i;
+					mii_txd_o   <= "0000" & tx_data_i(7 downto 4);
+					tx_state    <= TX_MII_LO_QUAD;
+			end case;
 		end if;
 	end process;
 
-	mii_gmii_tx_output : process(tx_state, tx_next_state, tx_data, tx_gap)
+	-- TX output process
+	-- Generates only the tx_byte_sent_o output
+	mii_gmii_tx_output : process(tx_state, tx_enable_i, speed_select_i)
 	begin
-		mii_tx_en_o    <= '0';
-		mii_txd_o      <= (others => '0');
+		-- Default output value
 		tx_byte_sent_o <= '0';
 
 		case tx_state is
-			when TX_IDLE =>
-				-- Look ahead to have tx_bytesent already set in the TX_GMII clock cycle
-				if tx_next_state = TX_GMII then
+			when TX_INIT =>
+				-- Look ahead to have tx_byte_sent already set in the TX_GMII clock cycle
+				if tx_enable_i = '1' and speed_select_i = SPEED_1000MBPS then
 					tx_byte_sent_o <= '1';
 				end if;
 			when TX_GMII =>
-				mii_tx_en_o <= not tx_gap;
-				mii_txd_o   <= tx_data;
 				-- Look ahead again
-				if tx_next_state /= TX_GMII then
+				if tx_enable_i = '0' then
 					tx_byte_sent_o <= '0';
 				else
 					tx_byte_sent_o <= '1';
 				end if;
 			when TX_MII_LO_QUAD =>
-				mii_tx_en_o    <= not tx_gap;
-				mii_txd_o      <= "0000" & tx_data(3 downto 0);
-				-- Set tx_bytesent here already so the sender can output new data when this 
-				-- FSM is in TX_MII_HI_QUAD state
+				null;
+			when TX_MII_HI_QUAD =>
+				-- MII is simpler, no look-ahead needed
 				tx_byte_sent_o <= '1';
-			when TX_MII_HI_QUAD =>
-				mii_tx_en_o <= not tx_gap;
-				mii_txd_o   <= "0000" & tx_data(7 downto 4);
-		end case;
-	end process;
-
-	mii_gmii_tx_next_state : process(tx_state, tx_enable_i, speed_select_i)
-	begin
-		-- Retain state by default
-		tx_next_state <= tx_state;
-
-		case tx_state is
-			when TX_IDLE =>
-				if tx_enable_i = '1' then
-					case speed_select_i is
-						when SPEED_1000MBPS =>
-							tx_next_state <= TX_GMII;
-						when others =>
-							tx_next_state <= TX_MII_LO_QUAD;
-					end case;
-				end if;
-			when TX_GMII =>
-				if tx_enable_i = '0' then
-					tx_next_state <= TX_IDLE;
-				end if;
-			when TX_MII_LO_QUAD =>
-				tx_next_state <= TX_MII_HI_QUAD;
-			when TX_MII_HI_QUAD =>
-				if tx_enable_i = '0' then
-					tx_next_state <= TX_IDLE;
-				else
-					tx_next_state <= TX_MII_LO_QUAD;
-				end if;
 		end case;
 	end process;
 
