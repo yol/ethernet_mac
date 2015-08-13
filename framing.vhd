@@ -20,7 +20,7 @@ entity framing is
 		tx_clock_i             : in  std_ulogic;
 		rx_reset_i             : in  std_ulogic;
 		rx_clock_i             : in  std_ulogic;
-		
+
 		-- For details on the signals, see the port list of mii_gmii
 
 		-- TX from client logic
@@ -200,7 +200,6 @@ begin
 								tx_interpacket_gap_counter <= tx_interpacket_gap_counter + 1;
 							end if;
 					end case;
-
 
 					if tx_state = TX_CLIENT_DATA or tx_state = TX_PAD then
 						-- Decrement required padding

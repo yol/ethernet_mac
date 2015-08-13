@@ -87,7 +87,7 @@ architecture rtl of ethernet is
 	signal mac_tx_enable        : std_ulogic := '0';
 	signal mac_tx_data          : t_ethernet_data;
 	signal mac_tx_byte_sent     : std_ulogic;
-	signal mac_tx_gap : std_ulogic;
+	signal mac_tx_gap           : std_ulogic;
 	signal mac_rx_frame         : std_ulogic;
 	signal mac_rx_data          : t_ethernet_data;
 	signal mac_rx_byte_received : std_ulogic;
@@ -177,7 +177,7 @@ begin
 			-- Interface control signals
 			speed_select_i     => speed,
 			tx_enable_i        => mac_tx_enable,
-			tx_gap_i => mac_tx_gap,
+			tx_gap_i           => mac_tx_gap,
 			tx_data_i          => mac_tx_data,
 			tx_byte_sent_o     => mac_tx_byte_sent,
 			rx_frame_o         => mac_rx_frame,
@@ -222,7 +222,7 @@ begin
 			rx_byte_received_o     => rx_byte_received_o,
 			rx_error_o             => rx_error_o,
 			mii_tx_enable_o        => mac_tx_enable,
-			mii_tx_gap_o => mac_tx_gap,
+			mii_tx_gap_o           => mac_tx_gap,
 			mii_tx_data_o          => mac_tx_data,
 			mii_tx_byte_sent_i     => mac_tx_byte_sent,
 			mii_rx_frame_i         => mac_rx_frame,
