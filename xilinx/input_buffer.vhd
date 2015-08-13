@@ -36,6 +36,7 @@ architecture spartan_6 of input_buffer is
 	attribute iob : string;
 	attribute iob of FDRE_inst : label is "FORCE";
 begin
+	-- When delay activated: Instantiate IODELAY2 and then capture its output
 	delay_gen : if HAS_DELAY = TRUE generate
 		fixed_input_delay_inst : entity work.fixed_input_delay
 			generic map(
@@ -47,6 +48,7 @@ begin
 			);
 	end generate;
 
+	-- When delay deactivated: Directly capture the signal
 	no_delay_gen : if HAS_DELAY = FALSE generate
 		delayed <= pad_i;
 	end generate;
@@ -62,4 +64,4 @@ begin
 			D  => delayed               -- Data input
 		);
 
-end architecture spartan_6;
+end architecture;
