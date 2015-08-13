@@ -3,7 +3,7 @@
 -- For the full copyright and license information, please read the
 -- LICENSE.md file that was distributed with this source code.
 
--- Self-checking testbench for the complete ethernet_mac
+-- Self-checking testbench for the complete ethernet_mac (excluding MIIM)
 
 library ieee;
 use ieee.std_logic_1164.all;
@@ -309,6 +309,7 @@ begin
 					mii_rx_put(send_packet_buffer(packet_i).data(i) and "11011111");
 				else
 					mii_rx_put(send_packet_buffer(packet_i).data(i));
+					report "Send: " & integer'image(to_integer(unsigned(send_packet_buffer(packet_i).data(i))));
 				end if;
 				fcs := NEXTCRC32_D8(send_packet_buffer(packet_i).data(i), fcs);
 			end loop;
@@ -382,27 +383,30 @@ begin
 				-- Allow receive cancellation
 				exit packet_loop when not receive_packet_req;
 				exit when mii_tx_en = '1';
-				if ipg_count < INTER_PACKET_GAP_BYTES then
+				if ipg_count < INTERPACKET_GAP_BYTES then
 					ipg_count := ipg_count + 1;
 				end if;
 			end loop;
 
-			assert ipg_count = INTER_PACKET_GAP_BYTES report "Inter-packet gap too short" severity failure;
+			assert ipg_count = INTERPACKET_GAP_BYTES report "Inter-packet gap too short" severity failure;
 
 			--report "Start packet reception" severity note;
 
 			for i in 0 to 6 loop
 				read_byte(data);
+				report "Rcv data: " & integer'image(to_integer(unsigned(data)));
 				assert data = PREAMBLE_DATA and mii_tx_en = '1' report "Packet did not start with correct preamble data" severity failure;
 			end loop;
 
 			read_byte(data);
+			report "Rcv data: " & integer'image(to_integer(unsigned(data)));
 			assert data = START_FRAME_DELIMITER_DATA and mii_tx_en = '1' report "Packet did not start with correct preamble data or start frame delimiter" severity failure;
 
 			fcs := (others => '1');
 
 			loop
 				read_byte(data);
+				report "Rcv data: " & integer'image(to_integer(unsigned(data)));
 				receive_packet_buffer(current_packet_i).data(current_byte) <= data;
 				current_byte                                               := current_byte + 1;
 				assert current_byte <= t_packet_data'high report "Transmitted packet is too long (size now " & integer'image(current_byte) & ")" severity failure;
@@ -414,6 +418,7 @@ begin
 
 			-- Subtract FCS size
 			current_byte := current_byte - CRC32_BYTES;
+			report "Rcv size: " & integer'image(current_byte);
 			assert current_byte >= MIN_FRAME_DATA_BYTES report "Transmitted packet is too short" severity failure;
 			-- Check FCS
 			assert fcs = CRC32_POSTINVERT_MAGIC report "FCS of transmitted packet did not match contents" severity failure;
@@ -599,7 +604,7 @@ begin
 		end loop;
 
 		report "Testing speed: 1 Gbps" severity note;
-		test_one_speed;
+		--test_one_speed;
 
 		speed_override <= SPEED_100MBPS;
 		wait for 10 us;

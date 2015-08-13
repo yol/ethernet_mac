@@ -3,6 +3,8 @@
 -- For the full copyright and license information, please read the
 -- LICENSE.md file that was distributed with this source code.
 
+-- MAC sublayer functionality (en-/decapsulation, FCS, IPG)
+
 library ieee;
 use ieee.std_logic_1164.all;
 use ieee.numeric_std.all;
@@ -14,10 +16,12 @@ use work.utility.all;
 
 entity framing is
 	port(
-		tx_reset_i                : in  std_ulogic;
+		tx_reset_i             : in  std_ulogic;
 		tx_clock_i             : in  std_ulogic;
-		rx_reset_i             : in std_ulogic;
+		rx_reset_i             : in  std_ulogic;
 		rx_clock_i             : in  std_ulogic;
+		
+		-- For details on the signals, see the port list of mii_gmii
 
 		-- TX from client logic
 		-- The length/type field is considered part of the data!
@@ -25,6 +29,8 @@ entity framing is
 		tx_enable_i            : in  std_ulogic;
 		tx_data_i              : in  t_ethernet_data;
 		tx_byte_sent_o         : out std_ulogic;
+		-- Do not start new frames while asserted
+		-- (continuing the previous one is alright)
 		tx_busy_o              : out std_ulogic;
 
 		-- RX to client logic 
@@ -37,7 +43,7 @@ entity framing is
 		mii_tx_enable_o        : out std_ulogic;
 		mii_tx_data_o          : out t_ethernet_data;
 		mii_tx_byte_sent_i     : in  std_ulogic;
-		mii_tx_busy_i          : in  std_ulogic;
+		mii_tx_gap_o           : out std_ulogic;
 
 		-- RX from MII
 		mii_rx_frame_i         : in  std_ulogic;
@@ -51,7 +57,6 @@ architecture rtl of framing is
 	-- Transmission
 	type t_tx_state is (
 		TX_IDLE,
-		TX_PREAMBLE1,
 		TX_PREAMBLE2,
 		TX_PREAMBLE3,
 		TX_PREAMBLE4,
@@ -61,19 +66,17 @@ architecture rtl of framing is
 		TX_START_FRAME_DELIMITER,
 		TX_CLIENT_DATA,
 		TX_PAD,
-		TX_FRAME_CHECK_SEQUENCE1,
 		TX_FRAME_CHECK_SEQUENCE2,
 		TX_FRAME_CHECK_SEQUENCE3,
-		TX_FRAME_CHECK_SEQUENCE4
+		TX_FRAME_CHECK_SEQUENCE4,
+		TX_INTERPACKET_GAP
 	);
 
-	signal tx_state      : t_tx_state := TX_IDLE;
-	signal tx_next_state : t_tx_state := TX_IDLE;
+	signal tx_state                   : t_tx_state                                      := TX_IDLE;
 	--signal tx_enable     : std_ulogic := '0';
-	signal tx_data       : t_ethernet_data;
-	signal mii_tx_data   : t_ethernet_data;
-
-	signal tx_padding_required : natural range 0 to MIN_FRAME_DATA_BYTES + 4 + 1 := 0;
+	--signal tx_data     : t_ethernet_data;
+	signal tx_padding_required        : natural range 0 to MIN_FRAME_DATA_BYTES + 4 + 1 := 0;
+	signal tx_interpacket_gap_counter : integer range 0 to INTERPACKET_GAP_BYTES;
 
 	signal tx_frame_check_sequence : t_crc32;
 
@@ -91,105 +94,121 @@ architecture rtl of framing is
 	signal rx_frame_size : t_rx_frame_size;
 
 begin
-	mii_tx_data_o <= mii_tx_data;
+	--tx_out : process(tx_state)
+	--begin
 
-	tx_fsm_output : process(tx_state, tx_enable_i, tx_padding_required, tx_data, mii_tx_busy_i, mii_tx_byte_sent_i, tx_frame_check_sequence)
-	begin
-		tx_next_state <= tx_state;
-
-		tx_byte_sent_o  <= '0';
-		mii_tx_data     <= (others => '0');
-		mii_tx_enable_o <= '0';
-		-- Mirror RS busy state by default
-		tx_busy_o       <= mii_tx_busy_i;
-
-		if tx_state /= TX_IDLE then
-			mii_tx_enable_o <= '1';
-		end if;
-
-		-- State transition is guarded by mii_tx_byte_sent_i
-		case tx_state is
-			when TX_IDLE =>
-				if tx_enable_i = '1' then
-					tx_next_state <= TX_PREAMBLE1;
-					--mii_tx_data <= PREAMBLE_DATA;
-					--mii_tx_enable_o <= '1';
-				end if;
-			when TX_PREAMBLE1 | TX_PREAMBLE2 | TX_PREAMBLE3 | TX_PREAMBLE4 | TX_PREAMBLE5 | TX_PREAMBLE6 =>
-				tx_next_state <= t_tx_state'succ(tx_state);
-				mii_tx_data   <= PREAMBLE_DATA;
-			when TX_PREAMBLE7 =>
-				tx_next_state <= TX_START_FRAME_DELIMITER;
-				mii_tx_data   <= PREAMBLE_DATA;
-			when TX_START_FRAME_DELIMITER =>
-				tx_next_state  <= TX_CLIENT_DATA;
-				mii_tx_data    <= START_FRAME_DELIMITER_DATA;
-				-- When the next clock reaches the receiver, the first byte is already
-				-- captured by the tx_data FF
-				tx_byte_sent_o <= mii_tx_byte_sent_i;
-			when TX_CLIENT_DATA =>
-				mii_tx_data    <= tx_data;
-				tx_byte_sent_o <= mii_tx_byte_sent_i;
-				if tx_enable_i = '0' then
-					if tx_padding_required = 0 then
-						tx_next_state <= TX_FRAME_CHECK_SEQUENCE1;
-					else
-						tx_next_state <= TX_PAD;
-					end if;
-				end if;
-			when TX_PAD =>
-				mii_tx_data <= PADDING_DATA;
-				if tx_padding_required = 0 then
-					-- When required=1, this was the last one
-					tx_next_state <= TX_FRAME_CHECK_SEQUENCE1;
-				end if;
-			when TX_FRAME_CHECK_SEQUENCE1 =>
-				tx_next_state <= t_tx_state'succ(tx_state);
-				mii_tx_data   <= fcs_output_byte(tx_frame_check_sequence, 0);
-			when TX_FRAME_CHECK_SEQUENCE2 =>
-				tx_next_state <= t_tx_state'succ(tx_state);
-				mii_tx_data   <= fcs_output_byte(tx_frame_check_sequence, 1);
-			when TX_FRAME_CHECK_SEQUENCE3 =>
-				tx_next_state <= t_tx_state'succ(tx_state);
-				mii_tx_data   <= fcs_output_byte(tx_frame_check_sequence, 2);
-			when TX_FRAME_CHECK_SEQUENCE4 =>
-				tx_next_state <= TX_IDLE;
-				mii_tx_data   <= fcs_output_byte(tx_frame_check_sequence, 3);
-		end case;
-	end process;
+	--		end process;
 
 	tx_fsm_sync : process(tx_reset_i, tx_clock_i)
 	begin
 		if tx_reset_i = '1' then
-			tx_state <= TX_IDLE;
+			tx_state        <= TX_IDLE;
+			mii_tx_enable_o <= '0';
+			tx_busy_o       <= '1';
 		elsif rising_edge(tx_clock_i) then
-			if tx_state = TX_IDLE or mii_tx_byte_sent_i = '1' then
-				tx_state  <= tx_next_state;
-				tx_data   <= tx_data_i;
-				--tx_enable <= tx_enable_i;
+			mii_tx_enable_o <= '0';
+			tx_busy_o       <= '0';
+			tx_byte_sent_o  <= '0';
+			if tx_state = TX_IDLE then
+				if tx_enable_i = '1' then
+					-- Jump straight into preamble to save a clock cycle of latency
+					tx_state        <= TX_PREAMBLE2;
+					mii_tx_data_o   <= PREAMBLE_DATA;
+					mii_tx_enable_o <= '1';
+					mii_tx_gap_o    <= '0';
+					tx_busy_o       <= '1';
+				end if;
+			else
+				-- Keep TX enable and busy asserted at all times
+				mii_tx_enable_o <= '1';
+				tx_busy_o       <= '1';
 
-				case tx_next_state is
-					when TX_START_FRAME_DELIMITER =>
-						-- Load padding register
-						tx_padding_required     <= MIN_FRAME_DATA_BYTES;
-						-- Load FCS
-						-- Initial value is 0xFFFFFFFF which is equivalent to inverting the first 32 bits of the frame
-						-- as required in clause 3.2.9 a
-						tx_frame_check_sequence <= (others => '1');
-					when TX_CLIENT_DATA | TX_PAD =>
+				if tx_state = TX_CLIENT_DATA then
+					-- Generate byte_sent indication as long as client data is actively transmitted
+					tx_byte_sent_o <= mii_tx_byte_sent_i;
+				end if;
+
+				-- Use mii_tx_byte_sent_i as clock enable
+				if mii_tx_byte_sent_i = '1' then
+					mii_tx_gap_o <= '0';
+
+					case tx_state is
+						when TX_IDLE =>
+							-- Handled above, cannot happen here
+							null;
+						when TX_PREAMBLE2 | TX_PREAMBLE3 | TX_PREAMBLE4 | TX_PREAMBLE5 | TX_PREAMBLE6 =>
+							tx_state      <= t_tx_state'succ(tx_state);
+							mii_tx_data_o <= PREAMBLE_DATA;
+						when TX_PREAMBLE7 =>
+							tx_state      <= TX_START_FRAME_DELIMITER;
+							mii_tx_data_o <= PREAMBLE_DATA;
+						when TX_START_FRAME_DELIMITER =>
+							tx_state                <= TX_CLIENT_DATA;
+							mii_tx_data_o           <= START_FRAME_DELIMITER_DATA;
+							-- Load padding register
+							tx_padding_required     <= MIN_FRAME_DATA_BYTES;
+							-- Load FCS
+							-- Initial value is 0xFFFFFFFF which is equivalent to inverting the first 32 bits of the frame
+							-- as required in clause 3.2.9 a
+							tx_frame_check_sequence <= (others => '1');
+						when TX_CLIENT_DATA =>
+							mii_tx_data_o <= tx_data_i;
+							if tx_enable_i = '0' then
+								-- No more user data was available, next value has to be sent
+								-- in this clock cycle already
+								if tx_padding_required = 0 then
+									-- Send FCS byte 1 now, byte 2 in next cycle
+									tx_state      <= TX_FRAME_CHECK_SEQUENCE2;
+									mii_tx_data_o <= fcs_output_byte(tx_frame_check_sequence, 0);
+								else
+									tx_state                <= TX_PAD;
+									mii_tx_data_o           <= PADDING_DATA;
+									-- Be sure to update FCS with one padding byte!
+									tx_frame_check_sequence <= update_crc32(tx_frame_check_sequence, PADDING_DATA);
+								end if;
+							else
+								-- Update FCS only as long as user data was available
+								tx_frame_check_sequence <= update_crc32(tx_frame_check_sequence, tx_data_i);
+							end if;
+						when TX_PAD =>
+							mii_tx_data_o <= PADDING_DATA;
+							if tx_padding_required = 0 then
+								-- When required=0, previous one was the last one -> send FCS
+								tx_state      <= TX_FRAME_CHECK_SEQUENCE2;
+								mii_tx_data_o <= fcs_output_byte(tx_frame_check_sequence, 0);
+							else
+								tx_frame_check_sequence <= update_crc32(tx_frame_check_sequence, PADDING_DATA);
+							end if;
+						when TX_FRAME_CHECK_SEQUENCE2 =>
+							tx_state      <= t_tx_state'succ(tx_state);
+							mii_tx_data_o <= fcs_output_byte(tx_frame_check_sequence, 1);
+						when TX_FRAME_CHECK_SEQUENCE3 =>
+							tx_state      <= t_tx_state'succ(tx_state);
+							mii_tx_data_o <= fcs_output_byte(tx_frame_check_sequence, 2);
+						when TX_FRAME_CHECK_SEQUENCE4 =>
+							tx_state                   <= TX_INTERPACKET_GAP;
+							mii_tx_data_o              <= fcs_output_byte(tx_frame_check_sequence, 3);
+							-- Load IPG counter with initial value
+							tx_interpacket_gap_counter <= 0;
+						when TX_INTERPACKET_GAP =>
+							-- Only state where the MAC is still busy but no data is actually sent
+							mii_tx_gap_o <= '1';
+							if tx_interpacket_gap_counter = INTERPACKET_GAP_BYTES - 1 then
+								-- Last IPG byte is transmitted in this cycle
+								tx_state <= TX_IDLE;
+							else
+								tx_interpacket_gap_counter <= tx_interpacket_gap_counter + 1;
+							end if;
+					end case;
+
+
+					if tx_state = TX_CLIENT_DATA or tx_state = TX_PAD then
 						-- Decrement required padding
 						if tx_padding_required > 0 then
 							tx_padding_required <= tx_padding_required - 1;
 						end if;
-						-- Update FCS
-						if tx_next_state = TX_CLIENT_DATA then
-							tx_frame_check_sequence <= update_crc32(tx_frame_check_sequence, tx_data_i);
-						else
-							tx_frame_check_sequence <= update_crc32(tx_frame_check_sequence, PADDING_DATA);
-						end if;
-					when others =>
-						null;
-				end case;
+					end if;
+				end if;
 			end if;
 		end if;
 	end process;

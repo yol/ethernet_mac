@@ -43,13 +43,17 @@ entity mii_gmii is
 		-- TX/RX control
 		-- TX signals synchronous to tx_clock
 		tx_enable_i        : in  std_ulogic;
+		-- When asserted together with tx_enable_i, tx_byte_sent_o works as normal, but no data is actually
+		-- put onto the media-independent interface (for IPG transmission)
+		tx_gap_i : in std_ulogic;
 		tx_data_i          : in  t_ethernet_data;
+		-- Put next data byte on tx_data_i when asserted
 		tx_byte_sent_o     : out std_ulogic;
-		tx_busy_o          : out std_ulogic;
 
 		-- RX signals synchronous to rx_clock
-		-- Valid as long as one continuous frame is being received
+		-- Asserted as long as one continuous frame is being received
 		rx_frame_o         : out std_ulogic;
+		-- Valid when rx_byte_received_o is asserted
 		rx_data_o          : out t_ethernet_data;
 		rx_byte_received_o : out std_ulogic;
 		rx_error_o         : out std_ulogic
@@ -57,18 +61,19 @@ entity mii_gmii is
 end entity;
 
 architecture rtl of mii_gmii is
+	-- Transmission
 	type t_mii_gmii_tx_state is (
 		TX_IDLE,
 		TX_GMII,
 		TX_MII_LO_QUAD,
-		TX_MII_HI_QUAD,
-		TX_INTER_PACKET_GAP,
-		-- MII needs two clock cycles per inter-packet gap byte
-		TX_INTER_PACKET_GAP_MII_HI_QUAD
+		TX_MII_HI_QUAD
 	);
 	signal tx_state      : t_mii_gmii_tx_state := TX_IDLE;
 	signal tx_next_state : t_mii_gmii_tx_state := TX_IDLE;
+	signal tx_gap: std_ulogic;
+	signal tx_data : t_ethernet_data;
 
+	-- Reception
 	type t_mii_gmii_rx_state is (
 		RX_INIT,
 		RX_GMII,
@@ -76,10 +81,6 @@ architecture rtl of mii_gmii is
 		RX_MII_HI_QUAD
 	);
 	signal rx_state : t_mii_gmii_rx_state := RX_INIT;
-
-	signal inter_packet_gap_counter : integer range 0 to INTER_PACKET_GAP_BYTES;
-
-	signal tx_data : t_ethernet_data;
 
 begin
 
@@ -92,41 +93,19 @@ begin
 			-- Capture data on clock edges
 			if tx_next_state = TX_GMII or tx_next_state = TX_MII_LO_QUAD then
 				tx_data <= tx_data_i;
+				tx_gap <= tx_gap_i;
 			end if;
-
-			-- Remember last speed to detect speed changes
-			--last_speed_select_tx <= speed_select_tx;
-			-- Ignored for now, nothing terrible should happen anyway (except for maybe
-			-- one corrupted frame). On the next frame, the correct speed setting is automatically chosen.
 
 			-- Advance state
 			tx_state <= tx_next_state;
-
-			-- Increase counter
-			inter_packet_gap_counter <= 0;
-
-			case tx_next_state is
-				when TX_INTER_PACKET_GAP =>
-					inter_packet_gap_counter <= inter_packet_gap_counter + 1;
-				when TX_INTER_PACKET_GAP_MII_HI_QUAD =>
-					-- Retain counter value
-					inter_packet_gap_counter <= inter_packet_gap_counter;
-				when others =>
-					null;
-			end case;
 		end if;
 	end process;
 
-	mii_gmii_tx_output : process(tx_state, tx_next_state, tx_data)
+	mii_gmii_tx_output : process(tx_state, tx_next_state, tx_data, tx_gap)
 	begin
 		mii_tx_en_o    <= '0';
 		mii_txd_o      <= (others => '0');
-		tx_busy_o      <= '0';
 		tx_byte_sent_o <= '0';
-
-		if tx_state /= TX_IDLE then
-			tx_busy_o <= '1';
-		end if;
 
 		case tx_state is
 			when TX_IDLE =>
@@ -135,7 +114,7 @@ begin
 					tx_byte_sent_o <= '1';
 				end if;
 			when TX_GMII =>
-				mii_tx_en_o <= '1';
+				mii_tx_en_o <= not tx_gap;
 				mii_txd_o   <= tx_data;
 				-- Look ahead again
 				if tx_next_state /= TX_GMII then
@@ -144,20 +123,18 @@ begin
 					tx_byte_sent_o <= '1';
 				end if;
 			when TX_MII_LO_QUAD =>
-				mii_tx_en_o    <= '1';
+				mii_tx_en_o    <= not tx_gap;
 				mii_txd_o      <= "0000" & tx_data(3 downto 0);
 				-- Set tx_bytesent here already so the sender can output new data when this 
 				-- FSM is in TX_MII_HI_QUAD state
 				tx_byte_sent_o <= '1';
 			when TX_MII_HI_QUAD =>
-				mii_tx_en_o <= '1';
+				mii_tx_en_o <= not tx_gap;
 				mii_txd_o   <= "0000" & tx_data(7 downto 4);
-			when TX_INTER_PACKET_GAP | TX_INTER_PACKET_GAP_MII_HI_QUAD =>
-				tx_busy_o <= '1';
 		end case;
 	end process;
 
-	mii_gmii_tx_next_state : process(tx_state, tx_enable_i, speed_select_i, inter_packet_gap_counter)
+	mii_gmii_tx_next_state : process(tx_state, tx_enable_i, speed_select_i)
 	begin
 		-- Retain state by default
 		tx_next_state <= tx_state;
@@ -174,24 +151,16 @@ begin
 				end if;
 			when TX_GMII =>
 				if tx_enable_i = '0' then
-					tx_next_state <= TX_INTER_PACKET_GAP;
+					tx_next_state <= TX_IDLE;
 				end if;
 			when TX_MII_LO_QUAD =>
 				tx_next_state <= TX_MII_HI_QUAD;
 			when TX_MII_HI_QUAD =>
 				if tx_enable_i = '0' then
-					tx_next_state <= TX_INTER_PACKET_GAP;
+					tx_next_state <= TX_IDLE;
 				else
 					tx_next_state <= TX_MII_LO_QUAD;
 				end if;
-			when TX_INTER_PACKET_GAP =>
-				if inter_packet_gap_counter = INTER_PACKET_GAP_BYTES - 1 then
-					tx_next_state <= TX_IDLE;
-				elsif speed_select_i /= SPEED_1000MBPS then
-					tx_next_state <= TX_INTER_PACKET_GAP_MII_HI_QUAD;
-				end if;
-			when TX_INTER_PACKET_GAP_MII_HI_QUAD =>
-				tx_next_state <= TX_INTER_PACKET_GAP;
 		end case;
 	end process;
 
@@ -202,11 +171,13 @@ begin
 			rx_state           <= RX_INIT;
 			rx_byte_received_o <= '0';
 		elsif rising_edge(rx_clock_i) then
+			-- Default output values
 			rx_frame_o         <= '0';
 			rx_byte_received_o <= '0';
 			rx_error_o         <= '0';
 
 			if rx_state /= RX_INIT then
+				-- Hand indicators through
 				rx_error_o <= mii_rx_er_i;
 				rx_frame_o <= mii_rx_dv_i;
 			end if;

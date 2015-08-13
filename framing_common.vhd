@@ -25,7 +25,7 @@ package framing_common is
 	constant MIN_FRAME_DATA_BYTES : positive := 46 + 2 + 6 + 6; -- bytes
 	constant MAX_FRAME_DATA_BYTES : positive := 1500 + 2 + 6 + 6; -- bytes
 
-	constant INTER_PACKET_GAP_BYTES : positive := 12; -- bytes
+	constant INTERPACKET_GAP_BYTES : positive := 12; -- bytes
 
 	-- 11 bits are sufficient for 2048 bytes, Ethernet can only have 1518
 	constant PACKET_LENGTH_BITS : positive := 11;
