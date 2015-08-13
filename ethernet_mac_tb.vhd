@@ -590,7 +590,7 @@ begin
 		speed_override <= SPEED_1000MBPS;
 		wait for 100 ns;
 		reset <= '0';
-		wait for 1 us;
+		wait for 10 us;
 
 		for packet_i in send_packet_buffer'range loop
 			for i in t_packet_data'range loop
