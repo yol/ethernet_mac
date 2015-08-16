@@ -56,6 +56,7 @@ entity ethernet_with_fifos is
 		-- Status, synchronous to miim_clock_i
 		link_up_o        : out   std_ulogic;
 		speed_o          : out   t_ethernet_speed;
+		-- Also synchronous to miim_clock_i if used!
 		speed_override_i : in    t_ethernet_speed := SPEED_UNSPECIFIED;
 
 		-- TX FIFO

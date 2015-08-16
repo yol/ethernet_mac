@@ -118,9 +118,7 @@ begin
 					state           <= SEND_DATA;
 					mac_tx_enable_o <= '1';
 				when SEND_DATA =>
-					--next_data <= data_i;
 					mac_tx_enable_o <= '1';
-					--mac_tx_data_o <= next_data;
 					if mac_tx_byte_sent_i = '1' then
 						if remaining_packet_size = 1 then
 							-- This was the last byte
@@ -131,7 +129,6 @@ begin
 								-- The buffer is exhausted if we've supplied its value
 								-- in the previous clock cycle, now supply data directly from the FIFO
 								mac_tx_data_o <= data_i;
-							--next_data <= data
 							else
 								-- Pass the buffered byte on
 								mac_tx_data_o <= next_data;

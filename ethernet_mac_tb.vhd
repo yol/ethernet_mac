@@ -19,6 +19,15 @@ end entity;
 
 architecture behavioral of ethernet_mac_tb is
 
+	-- Test configuration
+	-- Setting to TRUE enables test of all packet sizes from 1 to 1528
+	constant TEST_THOROUGH      : boolean := FALSE;
+	-- Enforce GMII setup/hold times 
+	constant TEST_MII_SETUPHOLD : boolean := FALSE;
+	-- Print debug information such as all sent/received data bytes
+	constant VERBOSE            : boolean := FALSE;
+
+
 	-- ethernet_with_fifos signals
 	signal clock_125    : std_ulogic                    := '0';
 	signal reset        : std_ulogic                    := '1';
@@ -32,11 +41,6 @@ architecture behavioral of ethernet_mac_tb is
 	signal mii_rxd      : std_ulogic_vector(7 downto 0) := (others => '0');
 	signal gmii_gtx_clk : std_ulogic                    := '0';
 	signal user_clock   : std_ulogic                    := '0';
-
-	-- Test configuration
-	-- Setting to TRUE enables test of all packet sizes from 1 to 1528
-	constant TEST_THOROUGH : boolean := FALSE;
-	constant TEST_MII_SETUPHOLD : boolean := FALSE;
 
 	-- Testbench signals
 	signal run : boolean := TRUE;
@@ -186,7 +190,7 @@ begin
 	user_clock <= clock_125;
 
 	-- Instantiate component
-	ethernet_mac_inst : entity work.test_mirror --work.test_wrapper_spartan6
+	ethernet_mac_inst : entity work.test_mirror -- work.test_wrapper_spartan6
 		port map(
 			clock_125_i      => clock_125,
 			user_clock_i     => user_clock,
@@ -270,6 +274,9 @@ begin
 			dv   : in std_ulogic                    := '1';
 			er   : in std_ulogic                    := '0') is
 		begin
+			if VERBOSE and data /= "XXXXXXXX" then
+				report "Send: " & integer'image(to_integer(unsigned(data)));
+			end if;
 			if speed_override = SPEED_1000MBPS then
 				mii_rx_cycle(data, dv, er);
 			else
@@ -309,7 +316,6 @@ begin
 					mii_rx_put(send_packet_buffer(packet_i).data(i) and "11011111");
 				else
 					mii_rx_put(send_packet_buffer(packet_i).data(i));
-					---report "Send: " & integer'image(to_integer(unsigned(send_packet_buffer(packet_i).data(i))));
 				end if;
 				fcs := NEXTCRC32_D8(send_packet_buffer(packet_i).data(i), fcs);
 			end loop;
@@ -394,7 +400,9 @@ begin
 
 			for i in 0 to 6 loop
 				read_byte(data);
-				--report "Rcv data: " & integer'image(to_integer(unsigned(data)));
+				if VERBOSE then
+					report "Rcv data: " & integer'image(to_integer(unsigned(data)));
+				end if;
 				assert data = PREAMBLE_DATA and mii_tx_en = '1' report "Packet did not start with correct preamble data" severity failure;
 			end loop;
 
@@ -406,7 +414,9 @@ begin
 
 			loop
 				read_byte(data);
-				--report "Rcv data: " & integer'image(to_integer(unsigned(data)));
+				if VERBOSE then
+					report "Rcv data: " & integer'image(to_integer(unsigned(data)));
+				end if;
 				receive_packet_buffer(current_packet_i).data(current_byte) <= data;
 				current_byte                                               := current_byte + 1;
 				assert current_byte <= t_packet_data'high report "Transmitted packet is too long (size now " & integer'image(current_byte) & ")" severity failure;
@@ -418,7 +428,9 @@ begin
 
 			-- Subtract FCS size
 			current_byte := current_byte - CRC32_BYTES;
-			--report "Rcv size: " & integer'image(current_byte);
+			if VERBOSE then
+				report "Rcv size: " & integer'image(current_byte);
+			end if;
 			assert current_byte >= MIN_FRAME_DATA_BYTES report "Transmitted packet is too short" severity failure;
 			-- Check FCS
 			assert fcs = CRC32_POSTINVERT_MAGIC report "FCS of transmitted packet did not match contents" severity failure;
@@ -606,11 +618,15 @@ begin
 		report "Testing speed: 1 Gbps" severity note;
 		test_one_speed;
 
+		-- Transition on user_clock falling because speed_override
+		-- must be synchronous to miim_clock (which is equal to user_clock here)
+		wait until falling_edge(user_clock);
 		speed_override <= SPEED_100MBPS;
 		wait for 10 us;
 		report "Testing speed: 100 Mbps" severity note;
 		test_one_speed;
 
+		wait until falling_edge(user_clock);
 		speed_override <= SPEED_10MBPS;
 		wait for 10 us;
 		report "Testing speed: 10 Mbps" severity note;

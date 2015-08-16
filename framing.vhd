@@ -73,8 +73,6 @@ architecture rtl of framing is
 	);
 
 	signal tx_state                   : t_tx_state                                      := TX_IDLE;
-	--signal tx_enable     : std_ulogic := '0';
-	--signal tx_data     : t_ethernet_data;
 	signal tx_padding_required        : natural range 0 to MIN_FRAME_DATA_BYTES + 4 + 1 := 0;
 	signal tx_interpacket_gap_counter : integer range 0 to INTERPACKET_GAP_BYTES;
 
@@ -94,11 +92,11 @@ architecture rtl of framing is
 	signal rx_frame_size : t_rx_frame_size;
 
 begin
-	--tx_out : process(tx_state)
-	--begin
+	-- Pass mii_tx_byte_sent_i through directly as long as data is being transmitted
+	-- to avoid having to prefetch data in the synchronous process
+	tx_byte_sent_o <= '1' when (tx_state = TX_CLIENT_DATA and mii_tx_byte_sent_i = '1') else '0';
 
-	--		end process;
-
+	-- Transmission state machine
 	tx_fsm_sync : process(tx_reset_i, tx_clock_i)
 	begin
 		if tx_reset_i = '1' then
@@ -108,7 +106,6 @@ begin
 		elsif rising_edge(tx_clock_i) then
 			mii_tx_enable_o <= '0';
 			tx_busy_o       <= '0';
-			tx_byte_sent_o  <= '0';
 			if tx_state = TX_IDLE then
 				if tx_enable_i = '1' then
 					-- Jump straight into preamble to save a clock cycle of latency
@@ -122,11 +119,6 @@ begin
 				-- Keep TX enable and busy asserted at all times
 				mii_tx_enable_o <= '1';
 				tx_busy_o       <= '1';
-
-				if tx_state = TX_CLIENT_DATA then
-					-- Generate byte_sent indication as long as client data is actively transmitted
-					tx_byte_sent_o <= mii_tx_byte_sent_i;
-				end if;
 
 				-- Use mii_tx_byte_sent_i as clock enable
 				if mii_tx_byte_sent_i = '1' then
@@ -212,6 +204,7 @@ begin
 		end if;
 	end process;
 
+	-- Reception state machine
 	rx_fsm_sync : process(rx_reset_i, rx_clock_i)
 	begin
 		if rx_reset_i = '1' then
