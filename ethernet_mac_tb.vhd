@@ -25,7 +25,7 @@ architecture behavioral of ethernet_mac_tb is
 	-- Enforce GMII setup/hold times 
 	constant TEST_MII_SETUPHOLD : boolean := FALSE;
 	-- Print debug information such as all sent/received data bytes
-	constant VERBOSE            : boolean := FALSE;
+	constant VERBOSE            : boolean := TRUE;
 
 
 	-- ethernet_with_fifos signals
@@ -610,7 +610,11 @@ begin
 		wait for 10 us;
 
 		for packet_i in send_packet_buffer'range loop
-			for i in t_packet_data'range loop
+			for i in 0 to 11 loop
+				-- Destination and source address
+				send_packet_buffer(packet_i).data(i) <= x"FF";
+			end loop;
+			for i in 12 to t_packet_data'high loop
 				send_packet_buffer(packet_i).data(i) <= std_ulogic_vector("1" & to_unsigned((i + 7 + packet_i) mod 128, 7));
 			end loop;
 		end loop;

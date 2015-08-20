@@ -11,6 +11,8 @@ use ieee.std_logic_1164.all;
 package utility is
 	-- Return the reverse of the given vector
 	function reverse_vector(a : in std_ulogic_vector) return std_ulogic_vector;
+	-- Extract a byte out of a vector
+	function extract_byte(a : in std_ulogic_vector; byteno : in natural) return std_ulogic_vector;
 end package;
 
 package body utility is
@@ -22,5 +24,10 @@ package body utility is
 			result(i) := aa(i);
 		end loop;
 		return result;
+	end function;
+	
+	function extract_byte(a : in std_ulogic_vector; byteno : in natural) return std_ulogic_vector is
+	begin
+		return a((byteno + 1) * 8 - 1 downto byteno * 8);
 	end function;
 end package body;

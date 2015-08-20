@@ -9,6 +9,7 @@ library ieee;
 use ieee.std_logic_1164.all;
 use ieee.numeric_std.all;
 
+use work.utility.all;
 use work.ethernet_types.all;
 
 entity test_mirror is
@@ -46,7 +47,10 @@ architecture rtl of test_mirror is
 	signal tx_data  : t_ethernet_data;
 	signal tx_wr_en : std_ulogic := '0';
 	signal tx_full  : std_ulogic;
+	signal mac_address : t_mac_address;
 begin
+	mac_address <= x"060504030201";
+	
 	ethernet_with_fifos_inst : entity work.ethernet_with_fifos
 		generic map(
 			MIIM_DISABLE => TRUE
@@ -54,6 +58,7 @@ begin
 		port map(
 			clock_125_i      => clock_125_i,
 			reset_i          => reset_i,
+			mac_address_i => mac_address,
 			mii_tx_clk_i     => mii_tx_clk_i,
 			mii_tx_er_o      => mii_tx_er_o,
 			mii_tx_en_o      => mii_tx_en_o,

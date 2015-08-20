@@ -21,6 +21,13 @@ entity framing is
 		rx_reset_i             : in  std_ulogic;
 		rx_clock_i             : in  std_ulogic;
 
+		-- MAC address of this station
+		-- Must not change after either reset is deasserted
+		-- Used for
+		-- * dropping received packets when the destination address differs from both this one and the broadcast address
+		-- * inserting as source address in transmitted packets when the first byte of the source address in the data stream is all-ones
+		mac_address_i          : in  t_mac_address;
+
 		-- For details on the signals, see the port list of mii_gmii
 
 		-- TX from client logic
@@ -64,6 +71,8 @@ architecture rtl of framing is
 		TX_PREAMBLE6,
 		TX_PREAMBLE7,
 		TX_START_FRAME_DELIMITER,
+		TX_CLIENT_DATA_WAIT_SOURCE_ADDRESS,
+		TX_SOURCE_ADDRESS,
 		TX_CLIENT_DATA,
 		TX_PAD,
 		TX_FRAME_CHECK_SEQUENCE2,
@@ -73,10 +82,10 @@ architecture rtl of framing is
 	);
 
 	signal tx_state                   : t_tx_state                                      := TX_IDLE;
+	signal tx_frame_check_sequence    : t_crc32;
 	signal tx_padding_required        : natural range 0 to MIN_FRAME_DATA_BYTES + 4 + 1 := 0;
 	signal tx_interpacket_gap_counter : integer range 0 to INTERPACKET_GAP_BYTES;
-
-	signal tx_frame_check_sequence : t_crc32;
+	signal tx_mac_address_byte        : integer range 0 to MAC_ADDRESS_BYTES;
 
 	-- Reception
 	type t_rx_state is (
@@ -89,15 +98,19 @@ architecture rtl of framing is
 	signal rx_state                : t_rx_state := RX_WAIT_START_FRAME_DELIMITER;
 	signal rx_frame_check_sequence : t_crc32;
 	subtype t_rx_frame_size is natural range 0 to MAX_FRAME_DATA_BYTES + CRC32_BYTES + 1;
-	signal rx_frame_size : t_rx_frame_size;
+	signal rx_frame_size       : t_rx_frame_size;
+	signal rx_is_broadcast     : std_ulogic;
+	signal rx_mac_address_byte : integer range 0 to MAC_ADDRESS_BYTES;
 
 begin
 	-- Pass mii_tx_byte_sent_i through directly as long as data is being transmitted
 	-- to avoid having to prefetch data in the synchronous process
-	tx_byte_sent_o <= '1' when (tx_state = TX_CLIENT_DATA and mii_tx_byte_sent_i = '1') else '0';
+	tx_byte_sent_o <= '1' when ((tx_state = TX_CLIENT_DATA or tx_state = TX_CLIENT_DATA_WAIT_SOURCE_ADDRESS or tx_state = TX_SOURCE_ADDRESS) and mii_tx_byte_sent_i = '1') else '0';
 
 	-- Transmission state machine
 	tx_fsm_sync : process(tx_reset_i, tx_clock_i)
+		variable update_fcs : boolean;
+		variable data_out   : t_ethernet_data;
 	begin
 		if tx_reset_i = '1' then
 			tx_state        <= TX_IDLE;
@@ -123,63 +136,93 @@ begin
 				-- Use mii_tx_byte_sent_i as clock enable
 				if mii_tx_byte_sent_i = '1' then
 					mii_tx_gap_o <= '0';
+					data_out     := (others => '0');
+					update_fcs   := FALSE;
 
 					case tx_state is
 						when TX_IDLE =>
 							-- Handled above, cannot happen here
 							null;
 						when TX_PREAMBLE2 | TX_PREAMBLE3 | TX_PREAMBLE4 | TX_PREAMBLE5 | TX_PREAMBLE6 =>
-							tx_state      <= t_tx_state'succ(tx_state);
-							mii_tx_data_o <= PREAMBLE_DATA;
+							tx_state <= t_tx_state'succ(tx_state);
+							data_out := PREAMBLE_DATA;
 						when TX_PREAMBLE7 =>
-							tx_state      <= TX_START_FRAME_DELIMITER;
-							mii_tx_data_o <= PREAMBLE_DATA;
+							tx_state <= TX_START_FRAME_DELIMITER;
+							data_out := PREAMBLE_DATA;
 						when TX_START_FRAME_DELIMITER =>
-							tx_state                <= TX_CLIENT_DATA;
-							mii_tx_data_o           <= START_FRAME_DELIMITER_DATA;
+							tx_state                <= TX_CLIENT_DATA_WAIT_SOURCE_ADDRESS;
+							data_out                := START_FRAME_DELIMITER_DATA;
 							-- Load padding register
 							tx_padding_required     <= MIN_FRAME_DATA_BYTES;
 							-- Load FCS
 							-- Initial value is 0xFFFFFFFF which is equivalent to inverting the first 32 bits of the frame
 							-- as required in clause 3.2.9 a
 							tx_frame_check_sequence <= (others => '1');
+							-- Load MAC address counter
+							tx_mac_address_byte     <= 0;
+						when TX_CLIENT_DATA_WAIT_SOURCE_ADDRESS =>
+							data_out   := tx_data_i;
+							update_fcs := TRUE;
+							-- Skip destination address
+							if tx_mac_address_byte < MAC_ADDRESS_BYTES then
+								tx_mac_address_byte <= tx_mac_address_byte + 1;
+							else
+								-- All-ones means that we should insert the source address here
+								if tx_data_i = x"FF" then
+									tx_state            <= TX_SOURCE_ADDRESS;
+									-- Override client data with first source address byte
+									data_out            := extract_byte(mac_address_i, 0);
+									-- Second byte is to be sent in next cycle
+									tx_mac_address_byte <= 1;
+								else
+									-- Transmit as usual, skip TX_SOURCE_ADDRESS
+									tx_state <= TX_CLIENT_DATA;
+								end if;
+							end if;
+						when TX_SOURCE_ADDRESS =>
+							data_out   := extract_byte(mac_address_i, tx_mac_address_byte);
+							update_fcs := TRUE;
+							if tx_mac_address_byte < MAC_ADDRESS_BYTES - 1 then
+								tx_mac_address_byte <= tx_mac_address_byte + 1;
+							else
+								-- Address completely sent when tx_mac_address_byte reaches 5
+								-- Pass on client data again in next cycle
+								tx_state <= TX_CLIENT_DATA;
+							end if;
 						when TX_CLIENT_DATA =>
-							mii_tx_data_o <= tx_data_i;
+							data_out   := tx_data_i;
+							update_fcs := TRUE;
 							if tx_enable_i = '0' then
 								-- No more user data was available, next value has to be sent
 								-- in this clock cycle already
 								if tx_padding_required = 0 then
 									-- Send FCS byte 1 now, byte 2 in next cycle
-									tx_state      <= TX_FRAME_CHECK_SEQUENCE2;
-									mii_tx_data_o <= fcs_output_byte(tx_frame_check_sequence, 0);
+									tx_state   <= TX_FRAME_CHECK_SEQUENCE2;
+									data_out   := fcs_output_byte(tx_frame_check_sequence, 0);
+									update_fcs := FALSE;
 								else
-									tx_state                <= TX_PAD;
-									mii_tx_data_o           <= PADDING_DATA;
-									-- Be sure to update FCS with one padding byte!
-									tx_frame_check_sequence <= update_crc32(tx_frame_check_sequence, PADDING_DATA);
+									tx_state <= TX_PAD;
+									data_out := PADDING_DATA;
 								end if;
-							else
-								-- Update FCS only as long as user data was available
-								tx_frame_check_sequence <= update_crc32(tx_frame_check_sequence, tx_data_i);
 							end if;
 						when TX_PAD =>
-							mii_tx_data_o <= PADDING_DATA;
+							data_out   := PADDING_DATA;
+							update_fcs := TRUE;
 							if tx_padding_required = 0 then
 								-- When required=0, previous one was the last one -> send FCS
-								tx_state      <= TX_FRAME_CHECK_SEQUENCE2;
-								mii_tx_data_o <= fcs_output_byte(tx_frame_check_sequence, 0);
-							else
-								tx_frame_check_sequence <= update_crc32(tx_frame_check_sequence, PADDING_DATA);
+								tx_state   <= TX_FRAME_CHECK_SEQUENCE2;
+								data_out   := fcs_output_byte(tx_frame_check_sequence, 0);
+								update_fcs := FALSE;
 							end if;
 						when TX_FRAME_CHECK_SEQUENCE2 =>
-							tx_state      <= t_tx_state'succ(tx_state);
-							mii_tx_data_o <= fcs_output_byte(tx_frame_check_sequence, 1);
+							tx_state <= t_tx_state'succ(tx_state);
+							data_out := fcs_output_byte(tx_frame_check_sequence, 1);
 						when TX_FRAME_CHECK_SEQUENCE3 =>
-							tx_state      <= t_tx_state'succ(tx_state);
-							mii_tx_data_o <= fcs_output_byte(tx_frame_check_sequence, 2);
+							tx_state <= t_tx_state'succ(tx_state);
+							data_out := fcs_output_byte(tx_frame_check_sequence, 2);
 						when TX_FRAME_CHECK_SEQUENCE4 =>
 							tx_state                   <= TX_INTERPACKET_GAP;
-							mii_tx_data_o              <= fcs_output_byte(tx_frame_check_sequence, 3);
+							data_out                   := fcs_output_byte(tx_frame_check_sequence, 3);
 							-- Load IPG counter with initial value
 							tx_interpacket_gap_counter <= 0;
 						when TX_INTERPACKET_GAP =>
@@ -193,7 +236,12 @@ begin
 							end if;
 					end case;
 
-					if tx_state = TX_CLIENT_DATA or tx_state = TX_PAD then
+					mii_tx_data_o <= data_out;
+					if update_fcs then
+						tx_frame_check_sequence <= update_crc32(tx_frame_check_sequence, data_out);
+					end if;
+
+					if tx_state = TX_CLIENT_DATA_WAIT_SOURCE_ADDRESS or tx_state = TX_SOURCE_ADDRESS or tx_state = TX_CLIENT_DATA or tx_state = TX_PAD then
 						-- Decrement required padding
 						if tx_padding_required > 0 then
 							tx_padding_required <= tx_padding_required - 1;
@@ -217,6 +265,9 @@ begin
 
 			case rx_state is
 				when RX_WAIT_START_FRAME_DELIMITER =>
+					-- Reset MAC address detection
+					rx_mac_address_byte     <= 0;
+					rx_is_broadcast         <= '1';
 					-- Reset frame size and FCS
 					rx_frame_size           <= 0;
 					-- Initial value is 0xFFFFFFFF which is equivalent to inverting the first 32 bits of the frame
@@ -258,6 +309,22 @@ begin
 							-- Increase frame size
 							if rx_frame_size < t_rx_frame_size'high then
 								rx_frame_size <= rx_frame_size + 1;
+							end if;
+							-- Check destination MAC address (first 6 bytes of packet)
+							if rx_mac_address_byte < MAC_ADDRESS_BYTES then
+								-- Mismatch of the current address byte is only a problem when
+								-- a) we know that it cannot possibly be the broadcast address (because a previous byte was not 0xFF), or
+								-- b) it could still be the broadcast address but the current byte is also not 0xFF.
+								if mii_rx_data_i /= extract_byte(mac_address_i, rx_mac_address_byte) and (rx_is_broadcast = '0' or (rx_is_broadcast = '1' and mii_rx_data_i /= x"FF")) then
+									-- Packet is not destined for us -> drop it 
+									rx_state <= RX_ERROR;
+								end if;
+								if mii_rx_data_i /= x"FF" then
+									-- Any byte of the address is not all-ones: packet cannot be a broadcast packet any more
+									rx_is_broadcast <= '0';
+								end if;
+
+								rx_mac_address_byte <= rx_mac_address_byte + 1;
 							end if;
 						end if;
 						if mii_rx_error_i = '1' then
