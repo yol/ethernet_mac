@@ -27,7 +27,6 @@ architecture behavioral of ethernet_mac_tb is
 	-- Print debug information such as all sent/received data bytes
 	constant VERBOSE            : boolean := FALSE;
 
-
 	-- ethernet_with_fifos signals
 	signal clock_125    : std_ulogic                    := '0';
 	signal reset        : std_ulogic                    := '1';
@@ -68,6 +67,7 @@ architecture behavioral of ethernet_mac_tb is
 	signal receive_packet_ack            : boolean := FALSE;
 	signal receive_packet_buffer         : t_packet_buffer;
 	signal receive_packet_count_expected : integer := 0;
+	signal receive_ipg_duration_bits     : integer;
 
 	signal mac_mirror_run : std_ulogic := '1';
 
@@ -340,10 +340,10 @@ begin
 
 	-- Process for reading the MII TX interface into a packet buffer
 	packet_receive_process : process is
-		variable current_byte : integer;
-		variable data         : t_ethernet_data;
-		variable fcs          : t_crc32;
-		variable ipg_count    : integer;
+		variable current_byte   : integer;
+		variable data           : t_ethernet_data;
+		variable fcs            : t_crc32;
+		variable ipg_count_bits : integer;
 
 		procedure wait_clk is
 		begin
@@ -381,20 +381,28 @@ begin
 		end loop;
 
 		packet_loop : for current_packet_i in 0 to receive_packet_count_expected - 1 loop
-			current_byte := 0;
-			ipg_count    := 0;
+			current_byte   := 0;
+			ipg_count_bits := 0;
 			-- Wait for beginning of frame
 			loop
+				-- Assuming tx_en is deasserted now, this is already the first cycle of the IPG
+				case speed_override is
+					when SPEED_10MBPS | SPEED_100MBPS =>
+						ipg_count_bits := ipg_count_bits + 4;
+					when others =>
+						ipg_count_bits := ipg_count_bits + 8;
+				end case;
 				wait_clk;
 				-- Allow receive cancellation
 				exit packet_loop when not receive_packet_req;
 				exit when mii_tx_en = '1';
-				if ipg_count < INTERPACKET_GAP_BYTES then
-					ipg_count := ipg_count + 1;
-				end if;
 			end loop;
 
-			assert ipg_count = INTERPACKET_GAP_BYTES report "Inter-packet gap too short" severity failure;
+			assert ipg_count_bits >= INTERPACKET_GAP_BYTES * 8 report "Inter-packet gap too short" severity failure;
+			-- Measure IPG duration between last two packets when multiple packets are received
+			if current_packet_i /= 0 then
+				receive_ipg_duration_bits <= ipg_count_bits;
+			end if;
 
 			--report "Start packet reception" severity note;
 
@@ -592,6 +600,9 @@ begin
 			-- Disable receiver
 			receive_packet_req <= FALSE;
 			wait for mii_rx_clk_period * 2;
+			-- Check IPG duration
+			report "IPG duration: " & integer'image(receive_ipg_duration_bits) & " bits" severity note;
+			assert receive_ipg_duration_bits < 20 * 8 report "Received interpacket gap is too long" severity failure;
 			-- Validate packets that went through
 			for i in 0 to 2 loop
 				assert receive_packet_buffer(i) = send_packet_buffer(i) report "Packet loopback resulted in different packets" severity failure;
