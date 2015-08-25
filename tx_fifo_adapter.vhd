@@ -105,7 +105,13 @@ begin
 							mac_tx_enable_o <= '1';
 							-- Move FIFO on to the second byte					
 							rd_en           <= '1';
-							state           <= WAIT_DATA_READ;
+							if remaining_packet_size = 1 then
+								-- No data to prefetch
+								state <= SEND_DATA;
+							else
+								-- Prefetch data
+								state <= WAIT_DATA_READ;
+							end if;
 						end if;
 					end if;
 				when WAIT_DATA_READ =>

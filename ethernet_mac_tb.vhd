@@ -13,6 +13,7 @@ use work.ethernet_types.all;
 use work.framing_common.all;
 use work.utility.all;
 use work.crc32.all;
+use work.test_common.all;
 
 entity ethernet_mac_tb is
 end entity;
@@ -69,7 +70,7 @@ architecture behavioral of ethernet_mac_tb is
 	signal receive_packet_count_expected : integer := 0;
 	signal receive_ipg_duration_bits     : integer;
 
-	signal mac_mirror_run : std_ulogic := '1';
+	signal test_mode : t_test_mode := TEST_LOOPBACK;
 
 	-- Timing definitions
 	constant clock_125_period : time := 8 ns;
@@ -190,7 +191,8 @@ begin
 	user_clock <= clock_125;
 
 	-- Instantiate component
-	ethernet_mac_inst : entity work.test_mirror -- work.test_wrapper_spartan6
+	-- Use work.test_wrapper_spartan6 for post-synthesis simulation
+	ethernet_mac_inst : entity work.test_instance -- work.test_wrapper_spartan6
 		port map(
 			clock_125_i      => clock_125,
 			user_clock_i     => user_clock,
@@ -207,7 +209,7 @@ begin
 			rgmii_tx_ctl_o   => open,
 			rgmii_rx_ctl_i   => '0',
 			speed_override_i => speed_override,
-			enable_mirror_i  => mac_mirror_run
+			test_mode_i      => test_mode
 		);
 
 	-- Generate clocks
@@ -398,9 +400,9 @@ begin
 				exit when mii_tx_en = '1';
 			end loop;
 
-			assert ipg_count_bits >= INTERPACKET_GAP_BYTES * 8 report "Inter-packet gap too short" severity failure;
 			-- Measure IPG duration between last two packets when multiple packets are received
 			if current_packet_i /= 0 then
+				assert ipg_count_bits >= INTERPACKET_GAP_BYTES * 8 report "Inter-packet gap too short" severity failure;
 				receive_ipg_duration_bits <= ipg_count_bits;
 			end if;
 
@@ -469,6 +471,15 @@ begin
 			wait until not send_packet_ack;
 		end procedure;
 
+		-- Activate the receiver and wait for it to complete
+		procedure do_receive is
+		begin
+			receive_packet_req <= TRUE;
+			wait until receive_packet_ack;
+			receive_packet_req <= FALSE;
+			wait until not receive_packet_ack;
+		end procedure;
+
 		-- Activate the sender an receiver and wait for both to complete
 		procedure do_send_receive is
 		begin
@@ -514,8 +525,15 @@ begin
 			send_packet_buffer(0).size <= size;
 			test_send_broken;
 		end procedure;
+		
+		procedure set_test_mode(new_test_mode : in t_test_mode) is
+		begin
+			wait until falling_edge(user_clock);
+			test_mode <= new_test_mode;
+		end procedure;
 
 		procedure test_one_speed is
+			variable verify_packet_buffer : t_packet_buffer;
 		begin
 			send_packet_buffer(0).valid   <= TRUE;
 			send_packet_buffer(1).valid   <= FALSE;
@@ -574,13 +592,37 @@ begin
 				wait for mii_rx_clk_period * 2;
 			end if;
 
+			-- Check TX padding
+			-- Fill verification data initially
+			for packet_i in verify_packet_buffer'range loop
+				verify_packet_buffer(packet_i).valid := FALSE;
+			end loop;
+			verify_packet_buffer(0).valid := TRUE;
+			verify_packet_buffer(0).size  := MIN_FRAME_DATA_BYTES;
+			-- Start transmission
+			set_test_mode(TEST_TX_PADDING);
+			for size in 1 to 59 loop
+				report "Check TX padding size " & integer'image(size) severity note;
+				-- Fill verification data
+				for i in 0 to size - 1 loop
+					verify_packet_buffer(0).data(i) := t_ethernet_data(to_unsigned(i + 1, 8));
+				end loop;
+				for i in size to MIN_FRAME_DATA_BYTES - 1 loop
+					verify_packet_buffer(0).data(i) := PADDING_DATA;
+				end loop;
+				-- Receive frame
+				do_receive;
+				-- Verify contents
+				assert receive_packet_buffer = verify_packet_buffer report "Padded TX message does not have expected size and content" severity failure;
+			end loop;
+
 			-- Check RX FIFO overflow
 			for i in 0 to 7 loop
 				send_packet_buffer(i).valid <= TRUE;
 				send_packet_buffer(i).size  <= 1024;
 			end loop;
 			-- Suspend FIFO reader
-			mac_mirror_run <= '0';
+			set_test_mode(TEST_NOTHING);
 
 			report "Check RX FIFO overrun: Fill FIFO" severity note;
 			-- Fill FIFO
@@ -590,7 +632,7 @@ begin
 			-- One more than really expected (3)
 			receive_packet_count_expected <= 4;
 			-- Resume FIFO reader
-			mac_mirror_run                <= '1';
+			set_test_mode(TEST_LOOPBACK);
 			report "Check RX FIFO overrun: Receive mirrored packets" severity note;
 			-- Wait for 3rd packet received
 			wait until receive_packet_buffer(2).valid;
