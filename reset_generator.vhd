@@ -31,11 +31,10 @@ end entity;
 
 architecture rtl of reset_generator is
 	type t_state is (
-		INIT,
 		WATCH,
 		RESET
 	);
-	signal state         : t_state;
+	signal state         : t_state := WATCH;
 	signal reset_counter : integer range 0 to RESET_TICKS;
 
 	signal last_speed : t_ethernet_speed;
@@ -50,8 +49,6 @@ begin
 			reset_o    <= '0';
 
 			case state is
-				when INIT =>
-					state <= WATCH;
 				when WATCH =>
 					null;
 				when RESET =>
@@ -63,7 +60,7 @@ begin
 					end if;
 			end case;
 
-			if speed_i /= last_speed and state /= INIT then
+			if speed_i /= last_speed then
 				-- Speed was changed
 				state         <= RESET;
 				-- Always reset counter
