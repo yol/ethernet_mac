@@ -1,7 +1,5 @@
 # Timing
 NET "clock_125_i" TNM_NET = "clock_125_i";
-#NET "rx_clock_i" TNM_NET = "clock_125_i";
-#NET "tx_clock_i" TNM_NET = "clock_125_i";
 TIMESPEC TS_clock_125_in = PERIOD "clock_125_i" 125 MHz HIGH 50% INPUT_JITTER 80 ps;
 
 NET "mii_tx_er_o" TNM = "gmii_out";
