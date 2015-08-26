@@ -129,6 +129,7 @@ Port     | Function
 `rx_data_o` | RX FIFO data
 
 The generics:
+
 Generic | Function
 ------- | ------
 `MIIM_PHY_ADDRESS` | MIIM address of the PHY (refer to its data sheet to see how this is configured on the PHY side)
