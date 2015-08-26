@@ -16,18 +16,18 @@ use work.crc32.all;
 use work.test_common.all;
 
 entity ethernet_mac_tb is
+	generic(
+		-- Test configuration
+		-- Setting to TRUE enables test of all packet sizes from 1 to 1528
+		TEST_THOROUGH      : boolean := FALSE;
+		-- Enforce GMII setup/hold times 
+		TEST_MII_SETUPHOLD : boolean := FALSE;
+		-- Print debug information such as all sent/received data bytes
+		VERBOSE            : boolean := FALSE
+	);
 end entity;
 
 architecture behavioral of ethernet_mac_tb is
-
-	-- Test configuration
-	-- Setting to TRUE enables test of all packet sizes from 1 to 1528
-	constant TEST_THOROUGH      : boolean := FALSE;
-	-- Enforce GMII setup/hold times 
-	constant TEST_MII_SETUPHOLD : boolean := FALSE;
-	-- Print debug information such as all sent/received data bytes
-	constant VERBOSE            : boolean := FALSE;
-
 	-- ethernet_with_fifos signals
 	signal clock_125    : std_ulogic                    := '0';
 	signal reset        : std_ulogic                    := '1';
@@ -48,6 +48,8 @@ architecture behavioral of ethernet_mac_tb is
 	constant MAX_PACKETS_IN_TRANSACTION : integer := 10;
 
 	-- Data array length is a bit on the large side so we can send jumbo frames
+	-- When debugging problems with waveform viewers (or generally using iSim), try smaller values to lessen
+	-- the burden on the simulator. Note that not all test cases will run then.
 	type t_packet_data is array (0 to 10000) of t_ethernet_data;
 	--type t_packet_data is array (0 to 1050) of t_ethernet_data;
 	--type t_packet_data is array (0 to 70) of t_ethernet_data;
@@ -78,6 +80,7 @@ architecture behavioral of ethernet_mac_tb is
 	constant clock_2_5_period : time := 400 ns;
 	constant mii_rx_setup     : time := 2 ns;
 	constant mii_rx_hold      : time := 0 ns;
+	constant mii_tx_setup     : time := 2.5 ns;
 
 	-- Functions
 
@@ -191,8 +194,7 @@ begin
 	user_clock <= clock_125;
 
 	-- Instantiate component
-	-- Use work.test_wrapper_spartan6 for post-synthesis simulation
-	ethernet_mac_inst : entity work.test_instance -- work.test_wrapper_spartan6
+	ethernet_mac_inst : test_instance
 		port map(
 			clock_125_i      => clock_125,
 			user_clock_i     => user_clock,
@@ -356,6 +358,10 @@ begin
 					wait until rising_edge(gmii_gtx_clk);
 			end case;
 			assert mii_tx_er = '0' report "MII transmission error flag is set" severity failure;
+			if TEST_MII_SETUPHOLD then
+				assert mii_tx_en'last_event > mii_tx_setup report "Setup time violated on TX_EN" severity failure;
+				assert mii_txd'last_event > mii_tx_setup report "Setup time violated on TXD" severity failure;
+			end if;
 		end procedure;
 
 		procedure read_byte(output_byte : out t_ethernet_data) is
@@ -535,6 +541,8 @@ begin
 		procedure test_one_speed is
 			variable verify_packet_buffer : t_packet_buffer;
 		begin
+			set_test_mode(TEST_LOOPBACK);
+			
 			send_packet_buffer(0).valid   <= TRUE;
 			send_packet_buffer(1).valid   <= FALSE;
 			receive_packet_count_expected <= 1;
@@ -592,30 +600,6 @@ begin
 				wait for mii_rx_clk_period * 2;
 			end if;
 
-			-- Check TX padding
-			-- Fill verification data initially
-			for packet_i in verify_packet_buffer'range loop
-				verify_packet_buffer(packet_i).valid := FALSE;
-			end loop;
-			verify_packet_buffer(0).valid := TRUE;
-			verify_packet_buffer(0).size  := MIN_FRAME_DATA_BYTES;
-			-- Start transmission
-			set_test_mode(TEST_TX_PADDING);
-			for size in 1 to 59 loop
-				report "Check TX padding size " & integer'image(size) severity note;
-				-- Fill verification data
-				for i in 0 to size - 1 loop
-					verify_packet_buffer(0).data(i) := t_ethernet_data(to_unsigned(i + 1, 8));
-				end loop;
-				for i in size to MIN_FRAME_DATA_BYTES - 1 loop
-					verify_packet_buffer(0).data(i) := PADDING_DATA;
-				end loop;
-				-- Receive frame
-				do_receive;
-				-- Verify contents
-				assert receive_packet_buffer = verify_packet_buffer report "Padded TX message does not have expected size and content" severity failure;
-			end loop;
-
 			-- Check RX FIFO overflow
 			for i in 0 to 7 loop
 				send_packet_buffer(i).valid <= TRUE;
@@ -653,9 +637,42 @@ begin
 			receive_packet_count_expected <= 1;
 			send_packet_buffer(1).valid   <= FALSE;
 			test_one_size(100);
+			
+			-- Check TX padding
+			-- Fill verification data initially
+			for packet_i in verify_packet_buffer'range loop
+				verify_packet_buffer(packet_i).valid := FALSE;
+			end loop;
+			verify_packet_buffer(0).valid := TRUE;
+			verify_packet_buffer(0).size  := MIN_FRAME_DATA_BYTES;
+			-- Start transmission
+			set_test_mode(TEST_TX_PADDING);
+			for size in 1 to 59 loop
+				report "Check TX padding size " & integer'image(size) severity note;
+				-- Fill verification data
+				for i in 0 to size - 1 loop
+					verify_packet_buffer(0).data(i) := t_ethernet_data(to_unsigned(i + 1, 8));
+				end loop;
+				for i in size to MIN_FRAME_DATA_BYTES - 1 loop
+					verify_packet_buffer(0).data(i) := PADDING_DATA;
+				end loop;
+				-- Receive frame
+				do_receive;
+				-- Verify contents
+				assert receive_packet_buffer = verify_packet_buffer report "Padded TX message does not have expected size and content" severity failure;
+			end loop;
+			
+			-- Stop TX padding test to prevent unwanted packets being sent after a speed change
+			set_test_mode(TEST_NOTHING);
+			
 		-- TODO: Check for correct FIFO function when it is filled up exactly to the last byte
 		end procedure;
 	begin
+		report "MAC functional check starting" severity note;
+		if TEST_MII_SETUPHOLD then
+			report "Testing MII setup/hold times" severity note;
+		end if;
+		
 		reset          <= '1';
 		speed_override <= SPEED_1000MBPS;
 		wait for 100 ns;

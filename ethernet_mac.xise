@@ -30,7 +30,7 @@
       <association xil_pn:name="Implementation" xil_pn:seqID="23"/>
     </file>
     <file xil_pn:name="ethernet_mac_tb.vhd" xil_pn:type="FILE_VHDL">
-      <association xil_pn:name="BehavioralSimulation" xil_pn:seqID="26"/>
+      <association xil_pn:name="BehavioralSimulation" xil_pn:seqID="27"/>
       <association xil_pn:name="PostMapSimulation" xil_pn:seqID="11"/>
       <association xil_pn:name="PostRouteSimulation" xil_pn:seqID="11"/>
       <association xil_pn:name="PostTranslateSimulation" xil_pn:seqID="3"/>
@@ -40,7 +40,7 @@
       <association xil_pn:name="Implementation" xil_pn:seqID="2" xil_pn:seqIDinc="5"/>
     </file>
     <file xil_pn:name="ethernet_with_fifos.vhd" xil_pn:type="FILE_VHDL">
-      <association xil_pn:name="BehavioralSimulation" xil_pn:seqID="24"/>
+      <association xil_pn:name="BehavioralSimulation" xil_pn:seqID="25"/>
       <association xil_pn:name="Implementation" xil_pn:seqID="25"/>
     </file>
     <file xil_pn:name="framing.vhd" xil_pn:type="FILE_VHDL">
@@ -133,7 +133,7 @@
       <association xil_pn:name="Implementation" xil_pn:seqID="16"/>
     </file>
     <file xil_pn:name="test_instance.vhd" xil_pn:type="FILE_VHDL">
-      <association xil_pn:name="BehavioralSimulation" xil_pn:seqID="25"/>
+      <association xil_pn:name="BehavioralSimulation" xil_pn:seqID="26"/>
       <association xil_pn:name="Implementation" xil_pn:seqID="26"/>
     </file>
     <file xil_pn:name="xilinx/output_buffer.vhd" xil_pn:type="FILE_VHDL">
@@ -141,7 +141,7 @@
       <association xil_pn:name="Implementation" xil_pn:seqID="6"/>
     </file>
     <file xil_pn:name="test_common.vhd" xil_pn:type="FILE_VHDL">
-      <association xil_pn:name="BehavioralSimulation" xil_pn:seqID="118"/>
+      <association xil_pn:name="BehavioralSimulation" xil_pn:seqID="24"/>
       <association xil_pn:name="Implementation" xil_pn:seqID="24"/>
     </file>
     <file xil_pn:name="xilinx/ipcore_dir/ethernet_mac_tx_fifo_xilinx.xise" xil_pn:type="FILE_COREGENISE">

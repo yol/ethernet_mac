@@ -69,6 +69,7 @@ architecture rtl of test_instance is
 	signal tx_padding_state : t_tx_padding_state := TX_PAD_SIZE_HI;
 	signal tx_packet_byte   : integer range 0 to MIN_FRAME_DATA_BYTES;
 	signal tx_packet_size   : integer range 0 to MIN_FRAME_DATA_BYTES;
+	signal tx_reset : std_ulogic;
 
 begin
 	-- Process for mirroring packets from the RX FIFO to the TX FIFO
@@ -117,7 +118,8 @@ begin
 			tx_clock_i       => user_clock_i,
 			tx_data_i        => tx_data,
 			tx_wr_en_i       => tx_wr_en,
-			tx_full_o        => tx_full
+			tx_full_o        => tx_full,
+			tx_reset_o       => tx_reset
 		);
 
 	-- Process for synchronous test modes
@@ -127,7 +129,7 @@ begin
 		if rising_edge(user_clock_i) then
 			rx_rd_en_sync <= '0';
 
-			if test_mode_i = TEST_TX_PADDING then
+			if test_mode_i = TEST_TX_PADDING and tx_reset = '0' then
 				tx_wr_en_sync <= '1';
 				case tx_padding_state is
 					when TX_PAD_SIZE_HI =>
@@ -138,7 +140,6 @@ begin
 						tx_padding_state <= TX_PAD_DATA;
 						tx_packet_byte   <= 0;
 					when TX_PAD_DATA =>
-						--report "Vwrite: " & integer'image(tx_packet_byte + 1) severity note;
 						tx_data_sync <= t_ethernet_data(to_unsigned(tx_packet_byte + 1, 8));
 						if tx_packet_byte = tx_packet_size - 1 then
 							if tx_packet_size = MIN_FRAME_DATA_BYTES - 1 then
