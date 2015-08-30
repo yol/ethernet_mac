@@ -102,15 +102,15 @@ Port     | Function
 -------- | ---
 `clock_125_i` | 125 MHz *unbuffered* reference clock for GMII TX operation
 `reset_i`  | Active-high asynchronous reset for the whole core
-`mii_tx_clk_i` | MII `TXCLK`
-`mii_tx_er_o` | MII `TXER`
-`mii_tx_en_o` | MII `TXEN`
+`mii_tx_clk_i` | MII `TX_CLK`
+`mii_tx_er_o` | MII `TX_ER`
+`mii_tx_en_o` | MII `TX_EN`
 `mii_txd_o` | MII `TXD`
-`mii_rx_clk_i` | MII `RXCLK`
-`mii_rx_er_i` | MII `RXER`
-`mii_rx_dv_i` | MII `RXDV`
+`mii_rx_clk_i` | MII `RX_CLK`
+`mii_rx_er_i` | MII `RX_ER`
+`mii_rx_dv_i` | MII `RX_DV`
 `mii_rxd_i` | MII `RXD`
-`gmii_gtx_clk_o` | GMII `GTXCLK`
+`gmii_gtx_clk_o` | GMII `GTX_CLK`
 `miim_clock_i` | Clock used for MIIM operation
 `mdc_o` | MIIM `MDC`
 `mdio_io` | MIIM `MDIO`
