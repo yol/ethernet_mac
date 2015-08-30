@@ -665,7 +665,7 @@ begin
 			-- Stop TX padding test to prevent unwanted packets being sent after a speed change
 			set_test_mode(TEST_NOTHING);
 			
-		-- TODO: Check for correct FIFO function when it is filled up exactly to the last byte
+			-- Check for correct FIFO function when it is filled up exactly to the last byte?
 		end procedure;
 	begin
 		report "MAC functional check starting" severity note;
