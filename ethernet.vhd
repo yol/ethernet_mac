@@ -29,6 +29,10 @@ entity ethernet is
 		-- back to a defined state (glitches might occur on the clock)
 		reset_o            : out   std_ulogic;
 
+		-- MAC address of this station
+		-- Must not change after reset is deasserted
+		mac_address_i      : in    t_mac_address;
+
 		-- MII (Media-independent interface)
 		mii_tx_clk_i       : in    std_ulogic;
 		mii_tx_er_o        : out   std_ulogic;
@@ -214,6 +218,7 @@ begin
 			tx_clock_i             => tx_clock,
 			tx_reset_i             => tx_reset,
 			rx_clock_i             => rx_clock,
+			mac_address_i          => mac_address_i,
 			tx_enable_i            => tx_enable_i,
 			tx_data_i              => tx_data_i,
 			tx_byte_sent_o         => tx_byte_sent_o,

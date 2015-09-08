@@ -9,6 +9,7 @@ library ieee;
 use ieee.std_logic_1164.all;
 use ieee.numeric_std.all;
 
+use work.utility.all;
 use work.ethernet_types.all;
 use work.framing_common.all;
 use work.test_common.all;
@@ -44,6 +45,8 @@ end entity;
 architecture rtl of test_instance is
 	signal rx_empty : std_ulogic;
 	signal tx_full  : std_ulogic;
+	
+	signal mac_address : t_mac_address;
 
 	-- Connected to ethernet_with_fifos via mux on test_mode_i 
 	signal rx_rd_en : std_ulogic := '0';
@@ -72,6 +75,8 @@ architecture rtl of test_instance is
 	signal tx_reset : std_ulogic;
 
 begin
+	mac_address <= TEST_MAC_ADDRESS;
+	
 	-- Process for mirroring packets from the RX FIFO to the TX FIFO
 	-- Asynchronous to avoid complicated buffering on full/empty conditions
 	tx_data_loopback  <= rx_data;
@@ -98,6 +103,7 @@ begin
 		port map(
 			clock_125_i      => clock_125_i,
 			reset_i          => reset_i,
+			mac_address_i    => mac_address,
 			mii_tx_clk_i     => mii_tx_clk_i,
 			mii_tx_er_o      => mii_tx_er_o,
 			mii_tx_en_o      => mii_tx_en_o,

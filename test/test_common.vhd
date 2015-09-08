@@ -9,6 +9,7 @@ library ieee;
 use ieee.std_logic_1164.all;
 
 use work.ethernet_types.all;
+use work.utility.all;
 
 package test_common is
 	type t_test_mode is (
@@ -19,6 +20,8 @@ package test_common is
 		-- Transmit frames with each size from 1 to 59 bytes to see if they are padded correctly
 		TEST_TX_PADDING
 	);
+	
+	constant TEST_MAC_ADDRESS : t_mac_address := reverse_bytes(x"000102030405");
 	
 	component test_instance
 		port(clock_125_i      : in  std_ulogic;

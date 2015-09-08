@@ -29,6 +29,9 @@ entity ethernet_with_fifos is
 		clock_125_i      : in    std_ulogic;
 		-- Asynchronous reset
 		reset_i          : in    std_ulogic;
+		-- MAC address of this station
+		-- Must not change after reset is deasserted
+		mac_address_i    : in    t_mac_address;
 
 		-- MII (Media-independent interface)
 		mii_tx_clk_i     : in    std_ulogic;
@@ -135,6 +138,7 @@ begin
 			clock_125_i        => clock_125_i,
 			reset_i            => reset_i,
 			reset_o            => mac_reset,
+			mac_address_i      => mac_address_i,
 			mii_tx_clk_i       => mii_tx_clk_i,
 			mii_tx_er_o        => mii_tx_er_o,
 			mii_tx_en_o        => mii_tx_en_o,
