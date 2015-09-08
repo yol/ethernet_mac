@@ -13,21 +13,21 @@ use work.ethernet_types.all;
 use work.framing_common.all;
 use work.utility.all;
 use work.crc32.all;
+use work.test_common.all;
 
 entity ethernet_mac_tb is
+	generic(
+		-- Test configuration
+		-- Setting to TRUE enables test of all packet sizes from 1 to 1528
+		TEST_THOROUGH      : boolean := FALSE;
+		-- Enforce GMII setup/hold times 
+		TEST_MII_SETUPHOLD : boolean := FALSE;
+		-- Print debug information such as all sent/received data bytes
+		VERBOSE            : boolean := FALSE
+	);
 end entity;
 
 architecture behavioral of ethernet_mac_tb is
-
-	-- Test configuration
-	-- Setting to TRUE enables test of all packet sizes from 1 to 1528
-	constant TEST_THOROUGH      : boolean := FALSE;
-	-- Enforce GMII setup/hold times 
-	constant TEST_MII_SETUPHOLD : boolean := FALSE;
-	-- Print debug information such as all sent/received data bytes
-	constant VERBOSE            : boolean := TRUE;
-
-
 	-- ethernet_with_fifos signals
 	signal clock_125    : std_ulogic                    := '0';
 	signal reset        : std_ulogic                    := '1';
@@ -48,6 +48,8 @@ architecture behavioral of ethernet_mac_tb is
 	constant MAX_PACKETS_IN_TRANSACTION : integer := 10;
 
 	-- Data array length is a bit on the large side so we can send jumbo frames
+	-- When debugging problems with waveform viewers (or generally using iSim), try smaller values to lessen
+	-- the burden on the simulator. Note that not all test cases will run then.
 	type t_packet_data is array (0 to 10000) of t_ethernet_data;
 	--type t_packet_data is array (0 to 1050) of t_ethernet_data;
 	--type t_packet_data is array (0 to 70) of t_ethernet_data;
@@ -68,8 +70,9 @@ architecture behavioral of ethernet_mac_tb is
 	signal receive_packet_ack            : boolean := FALSE;
 	signal receive_packet_buffer         : t_packet_buffer;
 	signal receive_packet_count_expected : integer := 0;
+	signal receive_ipg_duration_bits     : integer;
 
-	signal mac_mirror_run : std_ulogic := '1';
+	signal test_mode : t_test_mode := TEST_LOOPBACK;
 
 	-- Timing definitions
 	constant clock_125_period : time := 8 ns;
@@ -77,6 +80,7 @@ architecture behavioral of ethernet_mac_tb is
 	constant clock_2_5_period : time := 400 ns;
 	constant mii_rx_setup     : time := 2 ns;
 	constant mii_rx_hold      : time := 0 ns;
+	constant mii_tx_setup     : time := 2.5 ns;
 
 	-- Functions
 
@@ -190,7 +194,7 @@ begin
 	user_clock <= clock_125;
 
 	-- Instantiate component
-	ethernet_mac_inst : entity work.test_mirror -- work.test_wrapper_spartan6
+	ethernet_mac_inst : test_instance
 		port map(
 			clock_125_i      => clock_125,
 			user_clock_i     => user_clock,
@@ -207,7 +211,7 @@ begin
 			rgmii_tx_ctl_o   => open,
 			rgmii_rx_ctl_i   => '0',
 			speed_override_i => speed_override,
-			enable_mirror_i  => mac_mirror_run
+			test_mode_i      => test_mode
 		);
 
 	-- Generate clocks
@@ -340,10 +344,10 @@ begin
 
 	-- Process for reading the MII TX interface into a packet buffer
 	packet_receive_process : process is
-		variable current_byte : integer;
-		variable data         : t_ethernet_data;
-		variable fcs          : t_crc32;
-		variable ipg_count    : integer;
+		variable current_byte   : integer;
+		variable data           : t_ethernet_data;
+		variable fcs            : t_crc32;
+		variable ipg_count_bits : integer;
 
 		procedure wait_clk is
 		begin
@@ -354,6 +358,10 @@ begin
 					wait until rising_edge(gmii_gtx_clk);
 			end case;
 			assert mii_tx_er = '0' report "MII transmission error flag is set" severity failure;
+			if TEST_MII_SETUPHOLD then
+				assert mii_tx_en'last_event > mii_tx_setup report "Setup time violated on TX_EN" severity failure;
+				assert mii_txd'last_event > mii_tx_setup report "Setup time violated on TXD" severity failure;
+			end if;
 		end procedure;
 
 		procedure read_byte(output_byte : out t_ethernet_data) is
@@ -381,20 +389,28 @@ begin
 		end loop;
 
 		packet_loop : for current_packet_i in 0 to receive_packet_count_expected - 1 loop
-			current_byte := 0;
-			ipg_count    := 0;
+			current_byte   := 0;
+			ipg_count_bits := 0;
 			-- Wait for beginning of frame
 			loop
+				-- Assuming tx_en is deasserted now, this is already the first cycle of the IPG
+				case speed_override is
+					when SPEED_10MBPS | SPEED_100MBPS =>
+						ipg_count_bits := ipg_count_bits + 4;
+					when others =>
+						ipg_count_bits := ipg_count_bits + 8;
+				end case;
 				wait_clk;
 				-- Allow receive cancellation
 				exit packet_loop when not receive_packet_req;
 				exit when mii_tx_en = '1';
-				if ipg_count < INTERPACKET_GAP_BYTES then
-					ipg_count := ipg_count + 1;
-				end if;
 			end loop;
 
-			assert ipg_count = INTERPACKET_GAP_BYTES report "Inter-packet gap too short" severity failure;
+			-- Measure IPG duration between last two packets when multiple packets are received
+			if current_packet_i /= 0 then
+				assert ipg_count_bits >= INTERPACKET_GAP_BYTES * 8 report "Inter-packet gap too short" severity failure;
+				receive_ipg_duration_bits <= ipg_count_bits;
+			end if;
 
 			--report "Start packet reception" severity note;
 
@@ -461,6 +477,15 @@ begin
 			wait until not send_packet_ack;
 		end procedure;
 
+		-- Activate the receiver and wait for it to complete
+		procedure do_receive is
+		begin
+			receive_packet_req <= TRUE;
+			wait until receive_packet_ack;
+			receive_packet_req <= FALSE;
+			wait until not receive_packet_ack;
+		end procedure;
+
 		-- Activate the sender an receiver and wait for both to complete
 		procedure do_send_receive is
 		begin
@@ -506,9 +531,18 @@ begin
 			send_packet_buffer(0).size <= size;
 			test_send_broken;
 		end procedure;
+		
+		procedure set_test_mode(new_test_mode : in t_test_mode) is
+		begin
+			wait until falling_edge(user_clock);
+			test_mode <= new_test_mode;
+		end procedure;
 
 		procedure test_one_speed is
+			variable verify_packet_buffer : t_packet_buffer;
 		begin
+			set_test_mode(TEST_LOOPBACK);
+			
 			send_packet_buffer(0).valid   <= TRUE;
 			send_packet_buffer(1).valid   <= FALSE;
 			receive_packet_count_expected <= 1;
@@ -572,7 +606,7 @@ begin
 				send_packet_buffer(i).size  <= 1024;
 			end loop;
 			-- Suspend FIFO reader
-			mac_mirror_run <= '0';
+			set_test_mode(TEST_NOTHING);
 
 			report "Check RX FIFO overrun: Fill FIFO" severity note;
 			-- Fill FIFO
@@ -582,7 +616,7 @@ begin
 			-- One more than really expected (3)
 			receive_packet_count_expected <= 4;
 			-- Resume FIFO reader
-			mac_mirror_run                <= '1';
+			set_test_mode(TEST_LOOPBACK);
 			report "Check RX FIFO overrun: Receive mirrored packets" severity note;
 			-- Wait for 3rd packet received
 			wait until receive_packet_buffer(2).valid;
@@ -592,6 +626,9 @@ begin
 			-- Disable receiver
 			receive_packet_req <= FALSE;
 			wait for mii_rx_clk_period * 2;
+			-- Check IPG duration
+			report "IPG duration: " & integer'image(receive_ipg_duration_bits) & " bits" severity note;
+			assert receive_ipg_duration_bits < 20 * 8 report "Received interpacket gap is too long" severity failure;
 			-- Validate packets that went through
 			for i in 0 to 2 loop
 				assert receive_packet_buffer(i) = send_packet_buffer(i) report "Packet loopback resulted in different packets" severity failure;
@@ -600,9 +637,42 @@ begin
 			receive_packet_count_expected <= 1;
 			send_packet_buffer(1).valid   <= FALSE;
 			test_one_size(100);
-		-- TODO: Check for correct FIFO function when it is filled up exactly to the last byte
+			
+			-- Check TX padding
+			-- Fill verification data initially
+			for packet_i in verify_packet_buffer'range loop
+				verify_packet_buffer(packet_i).valid := FALSE;
+			end loop;
+			verify_packet_buffer(0).valid := TRUE;
+			verify_packet_buffer(0).size  := MIN_FRAME_DATA_BYTES;
+			-- Start transmission
+			set_test_mode(TEST_TX_PADDING);
+			for size in 1 to 59 loop
+				report "Check TX padding size " & integer'image(size) severity note;
+				-- Fill verification data
+				for i in 0 to size - 1 loop
+					verify_packet_buffer(0).data(i) := t_ethernet_data(to_unsigned(i + 1, 8));
+				end loop;
+				for i in size to MIN_FRAME_DATA_BYTES - 1 loop
+					verify_packet_buffer(0).data(i) := PADDING_DATA;
+				end loop;
+				-- Receive frame
+				do_receive;
+				-- Verify contents
+				assert receive_packet_buffer = verify_packet_buffer report "Padded TX message does not have expected size and content" severity failure;
+			end loop;
+			
+			-- Stop TX padding test to prevent unwanted packets being sent after a speed change
+			set_test_mode(TEST_NOTHING);
+			
+			-- Check for correct FIFO function when it is filled up exactly to the last byte?
 		end procedure;
 	begin
+		report "MAC functional check starting" severity note;
+		if TEST_MII_SETUPHOLD then
+			report "Testing MII setup/hold times" severity note;
+		end if;
+		
 		reset          <= '1';
 		speed_override <= SPEED_1000MBPS;
 		wait for 100 ns;

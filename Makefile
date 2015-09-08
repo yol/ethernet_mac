@@ -4,7 +4,7 @@ OPTS=--std=93c -g --ieee=synopsys -fexplicit --warn-no-vital-generic
 # --no-vital-checks
 
 all:
-	ghdl -i --work=ethernet_mac --workdir=ghdl $(OPTS) *.vhd xilinx/*.vhd xilinx/ipcore_dir/ethernet_mac_tx_fifo_xilinx.vhd
+	ghdl -i --work=ethernet_mac --workdir=ghdl $(OPTS) *.vhd xilinx/*.vhd test/*.vhd xilinx/ipcore_dir/ethernet_mac_tx_fifo_xilinx.vhd
 	ghdl -m --work=ethernet_mac --workdir=ghdl -Pghdl/unisim -Pghdl/xilinxcorelib $(OPTS) ethernet_mac_tb
 	
 check: all

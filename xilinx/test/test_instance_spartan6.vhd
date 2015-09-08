@@ -10,6 +10,7 @@ use ieee.std_logic_1164.all;
 use ieee.numeric_std.all;
 
 use work.ethernet_types.all;
+use work.test_common.all;
 
 library unisim;
 use unisim.vcomponents.all;
@@ -36,7 +37,7 @@ entity test_instance_spartan6 is
 
 		speed_override_i : in  t_ethernet_speed;
 
-		enable_mirror_i  : in  std_ulogic
+		test_mode_i      : in  std_ulogic_vector(1 downto 0)
 	);
 end entity;
 
@@ -45,8 +46,13 @@ architecture rtl of test_instance_spartan6 is
 	signal clock_125_unbuffered : std_ulogic;
 	signal locked               : std_ulogic;
 	signal reset                : std_ulogic;
+	signal test_mode            : t_test_mode;
 begin
-	reset <= reset_i or (not locked);
+	reset                             <= reset_i or (not locked);
+	with test_mode_i select test_mode <=
+		TEST_LOOPBACK when "01",
+		TEST_TX_PADDING when "10",
+		TEST_NOTHING when others;
 
 	clock_125_BUFG_inst : BUFG
 		port map(
@@ -95,7 +101,7 @@ begin
 			RST      => '0'             -- 1-bit input: Active high reset input
 		);
 
-	test_mirror_inst : entity work.test_mirror
+	test_instance_inst : entity work.test_instance
 		port map(
 			clock_125_i      => clock_125_unbuffered,
 			user_clock_i     => clock_125,
@@ -112,7 +118,7 @@ begin
 			rgmii_tx_ctl_o   => rgmii_tx_ctl_o,
 			rgmii_rx_ctl_i   => rgmii_rx_ctl_i,
 			speed_override_i => speed_override_i,
-			enable_mirror_i  => enable_mirror_i
+			test_mode_i      => test_mode
 		);
 
 end architecture;

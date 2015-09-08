@@ -95,6 +95,7 @@ architecture rtl of ethernet_with_fifos is
 	signal mac_tx_data          : t_ethernet_data;
 	signal mac_tx_byte_sent     : std_ulogic;
 	signal mac_tx_busy          : std_ulogic;
+	signal mac_tx_busy_int      : std_ulogic;
 	signal mac_rx_reset         : std_ulogic := '1';
 	signal mac_rx_clock         : std_ulogic;
 	signal mac_rx_frame         : std_ulogic;
@@ -103,6 +104,12 @@ architecture rtl of ethernet_with_fifos is
 	signal mac_rx_error         : std_ulogic;
 
 begin
+
+	-- Needed for correct simulation of the inter-packet gap
+	-- Without any delay, tx_fifo_adapter would see the tx_busy indication too early
+	-- This generally applies to all signals, but the behavior of the other ones
+	-- does not cause simulation mismatches.
+	mac_tx_busy <= transport mac_tx_busy_int after 1 ns;
 
 	-- Synchronize user resets
 	sync_tx_reset_inst : entity work.single_signal_synchronizer
@@ -151,7 +158,7 @@ begin
 			tx_enable_i        => mac_tx_enable,
 			tx_data_i          => mac_tx_data,
 			tx_byte_sent_o     => mac_tx_byte_sent,
-			tx_busy_o          => mac_tx_busy,
+			tx_busy_o          => mac_tx_busy_int,
 			rx_reset_o         => mac_rx_reset,
 			rx_clock_o         => mac_rx_clock,
 			rx_frame_o         => mac_rx_frame,

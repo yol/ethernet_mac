@@ -64,6 +64,8 @@ architecture rtl of framing is
 	-- Transmission
 	type t_tx_state is (
 		TX_IDLE,
+		-- TX_PREMABLE1 is not needed: first preamble byte is transmitted directly in TX_IDLE when start of transmission
+		-- is detected.
 		TX_PREAMBLE2,
 		TX_PREAMBLE3,
 		TX_PREAMBLE4,
