@@ -20,6 +20,8 @@ package test_common is
 		TEST_TX_PADDING
 	);
 	
+	constant TEST_MAC_ADDRESS : t_mac_address := x"050403020100";
+	
 	component test_instance
 		port(clock_125_i      : in  std_ulogic;
 			 user_clock_i     : in  std_ulogic;

@@ -101,7 +101,7 @@ architecture rtl of framing is
 	signal rx_frame_check_sequence : t_crc32;
 	subtype t_rx_frame_size is natural range 0 to MAX_FRAME_DATA_BYTES + CRC32_BYTES + 1;
 	signal rx_frame_size       : t_rx_frame_size;
-	signal rx_is_broadcast     : std_ulogic;
+	signal rx_is_group_address     : std_ulogic;
 	signal rx_mac_address_byte : integer range 0 to MAC_ADDRESS_BYTES;
 
 begin
@@ -180,6 +180,14 @@ begin
 									-- Transmit as usual, skip TX_SOURCE_ADDRESS
 									tx_state <= TX_CLIENT_DATA;
 								end if;
+							end if;
+							
+							-- Bail out from here if transmission was aborted
+							-- Note that this should not happen under normal circumstances as the
+							-- Ethernet frame would be far too short.
+							if tx_enable_i = '0' then
+								tx_state <= TX_PAD;
+								data_out := PADDING_DATA;
 							end if;
 						when TX_SOURCE_ADDRESS =>
 							data_out   := extract_byte(mac_address_i, tx_mac_address_byte);
@@ -269,7 +277,7 @@ begin
 				when RX_WAIT_START_FRAME_DELIMITER =>
 					-- Reset MAC address detection
 					rx_mac_address_byte     <= 0;
-					rx_is_broadcast         <= '1';
+					rx_is_group_address         <= '1';
 					-- Reset frame size and FCS
 					rx_frame_size           <= 0;
 					-- Initial value is 0xFFFFFFFF which is equivalent to inverting the first 32 bits of the frame
@@ -314,16 +322,24 @@ begin
 							end if;
 							-- Check destination MAC address (first 6 bytes of packet)
 							if rx_mac_address_byte < MAC_ADDRESS_BYTES then
-								-- Mismatch of the current address byte is only a problem when
-								-- a) we know that it cannot possibly be the broadcast address (because a previous byte was not 0xFF), or
-								-- b) it could still be the broadcast address but the current byte is also not 0xFF.
-								if mii_rx_data_i /= extract_byte(mac_address_i, rx_mac_address_byte) and (rx_is_broadcast = '0' or (rx_is_broadcast = '1' and mii_rx_data_i /= x"FF")) then
-									-- Packet is not destined for us -> drop it 
-									rx_state <= RX_ERROR;
-								end if;
-								if mii_rx_data_i /= x"FF" then
-									-- Any byte of the address is not all-ones: packet cannot be a broadcast packet any more
-									rx_is_broadcast <= '0';
+								-- First byte determines whether the address is an individual or group address
+								if rx_mac_address_byte = 0 then
+									if mii_rx_data_i(0) = '0' then
+										-- LSB of the address is zero: packet is destined for an individual entity
+										rx_is_group_address <= '0';
+										-- Check first address byte
+										if mii_rx_data_i /= extract_byte(mac_address_i, rx_mac_address_byte) then
+											-- Packet is not destined for us -> drop it
+											rx_state <= RX_ERROR;
+										end if;
+									end if;
+									-- If not: It is a group address packet -> do not drop it and do not check the address further
+								elsif rx_is_group_address = '0' then
+									-- Check other MAC address bytes only if we know it doesn't have a group destination address
+									if mii_rx_data_i /= extract_byte(mac_address_i, rx_mac_address_byte) then
+										-- Packet is not destined for us -> drop it 
+										rx_state <= RX_ERROR;
+									end if;
 								end if;
 
 								rx_mac_address_byte <= rx_mac_address_byte + 1;

@@ -97,7 +97,12 @@ architecture behavioral of ethernet_mac_tb is
 	end function;
 
 	-- Compare two packet transactions
-	function "="(left, right : in t_packet_transaction) return boolean is
+	-- When respect_address is set, it is taken into account that the
+	-- source address of the received packet will be different and needs to
+	-- match the address of the MAC test instance. The second arguments must be
+	-- the received packet then.
+	function compare_packet_transactions(left, right : in t_packet_transaction; respect_address : boolean := FALSE) return boolean is
+		variable data_begin : integer := 0;
 	begin
 		if left.valid /= right.valid then
 			report "Transaction validity state mismatch" severity note;
@@ -110,7 +115,26 @@ architecture behavioral of ethernet_mac_tb is
 				return FALSE;
 			end if;
 			-- Check data
-			for i in 0 to left.size - 1 loop
+			if respect_address = TRUE then
+				-- Verify that the destination address is untouched
+				for i in 0 to MAC_ADDRESS_BYTES - 1 loop
+					if left.data(i) /= right.data(i) then
+						report "Transaction destination address mismatch at index " & integer'image(i) severity note;
+						return FALSE;
+					end if;
+				end loop;
+				-- Compare the source address with the constant
+				for i in 0 to MAC_ADDRESS_BYTES - 1 loop
+					if right.data(MAC_ADDRESS_BYTES + i) /= extract_byte(TEST_MAC_ADDRESS, i) then
+						report "Transaction source address mismatch at index " & integer'image(i) severity note;
+						return FALSE;
+					end if;
+				end loop;
+				-- Start normal verification after the addresses
+				data_begin := 2 * MAC_ADDRESS_BYTES;
+			end if;
+			-- Compare rest of data (or all if respect_address is FALSE)
+			for i in data_begin to left.size - 1 loop
 				if left.data(i) /= right.data(i) then
 					report "Transaction data mismatch at index " & integer'image(i) severity note;
 					return FALSE;
@@ -125,19 +149,33 @@ architecture behavioral of ethernet_mac_tb is
 		end if;
 	end function;
 
+	function "="(left, right : in t_packet_transaction) return boolean is
+	begin
+		return compare_packet_transactions(left, right, FALSE);
+	end function;
+
 	-- Compare two packet transaction buffers
-	function "="(left, right : in t_packet_buffer) return boolean is
+	-- When respect_address is set, it is taken into account that the
+	-- source address of the received packets will be different and needs to
+	-- match the address of the MAC test instance. The second arguments must be
+	-- the received packets then.
+	function compare_packet_buffers(left, right : in t_packet_buffer; respect_address : boolean := FALSE) return boolean is
 	begin
 		for i in t_packet_buffer'range loop
 			-- Stop when both elements are invalid (end reached)
 			exit when (not left(i).valid) and (not right(i).valid);
 			-- Compare elements
-			if not (left(i) = right(i)) then
+			if not compare_packet_transactions(left(i), right(i), respect_address) then
 				report "Mismatch in buffer element " & integer'image(i) severity note;
 				return FALSE;
 			end if;
 		end loop;
 		return TRUE;
+	end function;
+
+	function "="(left, right : in t_packet_buffer) return boolean is
+	begin
+		return compare_packet_buffers(left, right, FALSE);
 	end function;
 
 	-- "Known good" CRC32 function for comparison from chips example project
@@ -188,6 +226,22 @@ architecture behavioral of ethernet_mac_tb is
 
 		return NEWCRC;
 	end function;
+
+	-- Copy MAC address (or similar) from a concatenated vector into byte units
+	procedure copy_to_buffer_packet(source : in std_ulogic_vector; signal destination : inout t_packet_buffer; transaction : in integer) is
+	begin
+		for i in 0 to source'high / 8 loop
+			destination(transaction).data(i) <= extract_byte(source, i);
+		end loop;
+	end procedure;
+
+	-- Copy MAC address (or similar) from byte units into a concatenated vector
+	procedure copy_from_buffer_packet(source : in t_packet_buffer; transaction : in integer; destination : inout std_ulogic_vector) is
+	begin
+		for i in 0 to destination'high / 8 loop
+			destination(((i + 1) * 8) - 1 downto (i * 8)) := source(transaction).data(i);
+		end loop;
+	end procedure;
 
 begin
 	-- Be aware of simulation mismatch because of delta-delay issues here
@@ -364,8 +418,10 @@ begin
 			end if;
 		end procedure;
 
-		procedure read_byte(output_byte : out t_ethernet_data) is
+		procedure read_byte(output_byte : inout t_ethernet_data) is
+			variable tx_was_enabled : std_ulogic;
 		begin
+			tx_was_enabled := mii_tx_en;
 			case speed_override is
 				when SPEED_10MBPS | SPEED_100MBPS =>
 					output_byte(3 downto 0) := mii_txd(3 downto 0);
@@ -377,6 +433,9 @@ begin
 					output_byte := mii_txd;
 					wait_clk;
 			end case;
+			if tx_was_enabled = '1' and VERBOSE then
+				report "Rcv data: " & integer'image(to_integer(unsigned(output_byte)));
+			end if;
 		end procedure;
 
 	begin
@@ -416,23 +475,16 @@ begin
 
 			for i in 0 to 6 loop
 				read_byte(data);
-				if VERBOSE then
-					report "Rcv data: " & integer'image(to_integer(unsigned(data)));
-				end if;
 				assert data = PREAMBLE_DATA and mii_tx_en = '1' report "Packet did not start with correct preamble data" severity failure;
 			end loop;
 
 			read_byte(data);
-			--report "Rcv data: " & integer'image(to_integer(unsigned(data)));
 			assert data = START_FRAME_DELIMITER_DATA and mii_tx_en = '1' report "Packet did not start with correct preamble data or start frame delimiter" severity failure;
 
 			fcs := (others => '1');
 
 			loop
 				read_byte(data);
-				if VERBOSE then
-					report "Rcv data: " & integer'image(to_integer(unsigned(data)));
-				end if;
 				receive_packet_buffer(current_packet_i).data(current_byte) <= data;
 				current_byte                                               := current_byte + 1;
 				assert current_byte <= t_packet_data'high report "Transmitted packet is too long (size now " & integer'image(current_byte) & ")" severity failure;
@@ -503,12 +555,13 @@ begin
 			report "Check single frame loopback size " & integer'image(size) severity note;
 			send_packet_buffer(0).size <= size;
 			do_send_receive;
-			assert receive_packet_buffer = send_packet_buffer report "Packet loopback resulted in different packets" severity failure;
+			assert compare_packet_buffers(send_packet_buffer, receive_packet_buffer, TRUE) report "Packet loopback resulted in different packets" severity failure;
 		end procedure;
 
 		-- Send a packet, check that nothing comes back
 		procedure test_send_broken is
-			variable send_corrupt_data_backup : boolean;
+			variable send_corrupt_data_backup   : boolean;
+			variable destination_address_backup : t_mac_address;
 		begin
 			-- Enable receiver
 			receive_packet_req <= TRUE;
@@ -521,8 +574,12 @@ begin
 			-- Now send an OK packet to check that it hasn't deadlocked somewhere
 			send_corrupt_data_backup := send_corrupt_data;
 			send_corrupt_data        <= FALSE;
+			copy_from_buffer_packet(send_packet_buffer, 0, destination_address_backup);
+			-- Make sure the packet doesn't get dropped because of a non-matching address
+			copy_to_buffer_packet(TEST_MAC_ADDRESS, send_packet_buffer, 0);
 			test_one_size(100);
 			send_corrupt_data <= send_corrupt_data_backup;
+			copy_to_buffer_packet(destination_address_backup, send_packet_buffer, 0);
 		end procedure;
 
 		procedure test_broken_size(size : in integer) is
@@ -531,7 +588,7 @@ begin
 			send_packet_buffer(0).size <= size;
 			test_send_broken;
 		end procedure;
-		
+
 		procedure set_test_mode(new_test_mode : in t_test_mode) is
 		begin
 			wait until falling_edge(user_clock);
@@ -542,7 +599,7 @@ begin
 			variable verify_packet_buffer : t_packet_buffer;
 		begin
 			set_test_mode(TEST_LOOPBACK);
-			
+
 			send_packet_buffer(0).valid   <= TRUE;
 			send_packet_buffer(1).valid   <= FALSE;
 			receive_packet_count_expected <= 1;
@@ -561,6 +618,21 @@ begin
 					test_one_size(MAX_FRAME_DATA_BYTES - 1);
 					test_one_size(MAX_FRAME_DATA_BYTES);
 				end if;
+
+				-- Test broadcast MAC address instead of unicast
+				copy_to_buffer_packet(BROADCAST_MAC_ADDRESS, send_packet_buffer, 0);
+				report "Check broadcast MAC destination address:" severity note;
+				test_one_size(100);
+				-- Test multicast address
+				copy_to_buffer_packet(TEST_MAC_ADDRESS, send_packet_buffer, 0);
+				-- Set group address bit
+				send_packet_buffer(0).data(0)(0) <= '1';
+				-- Make sure the rest is different from the test MAC address
+				send_packet_buffer(0).data(1)    <= not send_packet_buffer(0).data(1);
+				report "Check multicast MAC destination address:" severity note;
+				test_one_size(100);
+				-- Copy entity address back for further tests
+				copy_to_buffer_packet(TEST_MAC_ADDRESS, send_packet_buffer, 0);
 			end if;
 
 			-- Tests for packets that should get dropped
@@ -589,6 +661,15 @@ begin
 				test_broken_size(2 ** 11 + 70);
 				-- Test size that is greater than total RX buffer size
 				test_broken_size(9999);
+				-- Test different destination MAC address
+				for b in 0 to MAC_ADDRESS_BYTES - 1 loop
+					-- Make sure byte position b does not match
+					send_packet_buffer(0).data(b)(5) <= not send_packet_buffer(0).data(b)(5);
+					report "Check MAC destination address mismatch at position " & integer'image(b) & ":" severity note;
+					test_broken_size(100);
+					-- Restore original address
+					copy_to_buffer_packet(TEST_MAC_ADDRESS, send_packet_buffer, 0);
+				end loop;
 				-- Test wrong FCS
 				report "Check single broken frame is not looped back size 100 bad FCS" severity note;
 				send_packet_buffer(0).size <= 100;
@@ -600,79 +681,84 @@ begin
 				wait for mii_rx_clk_period * 2;
 			end if;
 
-			-- Check RX FIFO overflow
-			for i in 0 to 7 loop
-				send_packet_buffer(i).valid <= TRUE;
-				send_packet_buffer(i).size  <= 1024;
-			end loop;
-			-- Suspend FIFO reader
-			set_test_mode(TEST_NOTHING);
+			if TRUE then
+				-- Check RX FIFO overflow
+				for i in 0 to 7 loop
+					send_packet_buffer(i).valid <= TRUE;
+					send_packet_buffer(i).size  <= 1024;
+				end loop;
+				-- Suspend FIFO reader
+				set_test_mode(TEST_NOTHING);
 
-			report "Check RX FIFO overrun: Fill FIFO" severity note;
-			-- Fill FIFO
-			do_send;
-			-- Enable receiver
-			receive_packet_req            <= TRUE;
-			-- One more than really expected (3)
-			receive_packet_count_expected <= 4;
-			-- Resume FIFO reader
-			set_test_mode(TEST_LOOPBACK);
-			report "Check RX FIFO overrun: Receive mirrored packets" severity note;
-			-- Wait for 3rd packet received
-			wait until receive_packet_buffer(2).valid;
-			-- Give it some more time to potentially receive another packet
-			wait for mii_rx_clk_period * 3000;
-			assert not receive_packet_ack report "Too many packets were received" severity failure;
-			-- Disable receiver
-			receive_packet_req <= FALSE;
-			wait for mii_rx_clk_period * 2;
-			-- Check IPG duration
-			report "IPG duration: " & integer'image(receive_ipg_duration_bits) & " bits" severity note;
-			assert receive_ipg_duration_bits < 20 * 8 report "Received interpacket gap is too long" severity failure;
-			-- Validate packets that went through
-			for i in 0 to 2 loop
-				assert receive_packet_buffer(i) = send_packet_buffer(i) report "Packet loopback resulted in different packets" severity failure;
-			end loop;
-			-- Check that normal reception is now working again
-			receive_packet_count_expected <= 1;
-			send_packet_buffer(1).valid   <= FALSE;
-			test_one_size(100);
-			
-			-- Check TX padding
-			-- Fill verification data initially
-			for packet_i in verify_packet_buffer'range loop
-				verify_packet_buffer(packet_i).valid := FALSE;
-			end loop;
-			verify_packet_buffer(0).valid := TRUE;
-			verify_packet_buffer(0).size  := MIN_FRAME_DATA_BYTES;
-			-- Start transmission
-			set_test_mode(TEST_TX_PADDING);
-			for size in 1 to 59 loop
-				report "Check TX padding size " & integer'image(size) severity note;
-				-- Fill verification data
-				for i in 0 to size - 1 loop
-					verify_packet_buffer(0).data(i) := t_ethernet_data(to_unsigned(i + 1, 8));
+				report "Check RX FIFO overrun: Fill FIFO" severity note;
+				-- Fill FIFO
+				do_send;
+				-- Enable receiver
+				receive_packet_req            <= TRUE;
+				-- One more than really expected (3)
+				receive_packet_count_expected <= 4;
+				-- Resume FIFO reader
+				set_test_mode(TEST_LOOPBACK);
+				report "Check RX FIFO overrun: Receive mirrored packets" severity note;
+				-- Wait for 3rd packet received
+				wait until receive_packet_buffer(2).valid;
+				-- Give it some more time to potentially receive another packet
+				wait for mii_rx_clk_period * 3000;
+				assert not receive_packet_ack report "Too many packets were received" severity failure;
+				-- Disable receiver
+				receive_packet_req <= FALSE;
+				wait for mii_rx_clk_period * 2;
+				-- Check IPG duration
+				report "IPG duration: " & integer'image(receive_ipg_duration_bits) & " bits" severity note;
+				assert receive_ipg_duration_bits < 20 * 8 report "Received interpacket gap is too long" severity failure;
+				-- Validate packets that went through
+				for i in 0 to 2 loop
+					assert compare_packet_transactions(send_packet_buffer(i), receive_packet_buffer(i), TRUE) report "Packet loopback resulted in different packets" severity failure;
 				end loop;
-				for i in size to MIN_FRAME_DATA_BYTES - 1 loop
-					verify_packet_buffer(0).data(i) := PADDING_DATA;
+				-- Check that normal reception is now working again
+				receive_packet_count_expected <= 1;
+				send_packet_buffer(1).valid   <= FALSE;
+				test_one_size(100);
+			end if;
+
+			if TRUE then
+				-- Check TX padding
+				-- Fill verification data initially
+				for packet_i in verify_packet_buffer'range loop
+					verify_packet_buffer(packet_i).valid := FALSE;
 				end loop;
-				-- Receive frame
-				do_receive;
-				-- Verify contents
-				assert receive_packet_buffer = verify_packet_buffer report "Padded TX message does not have expected size and content" severity failure;
-			end loop;
-			
-			-- Stop TX padding test to prevent unwanted packets being sent after a speed change
-			set_test_mode(TEST_NOTHING);
-			
-			-- Check for correct FIFO function when it is filled up exactly to the last byte?
+				verify_packet_buffer(0).valid := TRUE;
+				verify_packet_buffer(0).size  := MIN_FRAME_DATA_BYTES;
+				-- Start transmission
+				set_test_mode(TEST_TX_PADDING);
+				for size in 1 to 59 loop
+					report "Check TX padding size " & integer'image(size) severity note;
+					-- Fill verification data
+					for i in 0 to size - 1 loop
+						verify_packet_buffer(0).data(i) := t_ethernet_data(to_unsigned(i + 1, 8));
+					end loop;
+					for i in size to MIN_FRAME_DATA_BYTES - 1 loop
+						verify_packet_buffer(0).data(i) := PADDING_DATA;
+					end loop;
+					-- Receive frame
+					do_receive;
+					-- Verify contents
+					-- Do not check the MAC address: Auto-insertion does not take place in this test
+					assert compare_packet_buffers(verify_packet_buffer, receive_packet_buffer, FALSE) report "Padded TX message does not have expected size and content" severity failure;
+				end loop;
+
+				-- Stop TX padding test to prevent unwanted packets being sent after a speed change
+				set_test_mode(TEST_NOTHING);
+			end if;
+
+		-- Check for correct FIFO function when it is filled up exactly to the last byte?
 		end procedure;
 	begin
 		report "MAC functional check starting" severity note;
 		if TEST_MII_SETUPHOLD then
 			report "Testing MII setup/hold times" severity note;
 		end if;
-		
+
 		reset          <= '1';
 		speed_override <= SPEED_1000MBPS;
 		wait for 100 ns;
@@ -680,12 +766,15 @@ begin
 		wait for 10 us;
 
 		for packet_i in send_packet_buffer'range loop
-			for i in 0 to 11 loop
+			-- Destination address
+			copy_to_buffer_packet(TEST_MAC_ADDRESS, send_packet_buffer, packet_i);
+			-- Source address
+			for i in MAC_ADDRESS_BYTES to 2 * MAC_ADDRESS_BYTES - 1 loop
 				-- Destination and source address
 				send_packet_buffer(packet_i).data(i) <= x"FF";
 			end loop;
 			for i in 12 to t_packet_data'high loop
-				send_packet_buffer(packet_i).data(i) <= std_ulogic_vector("1" & to_unsigned((i + 7 + packet_i) mod 128, 7));
+				send_packet_buffer(packet_i).data(i) <= std_ulogic_vector(to_unsigned((i + 7 + packet_i) mod 256, 8));
 			end loop;
 		end loop;
 

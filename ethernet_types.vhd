@@ -14,6 +14,8 @@ package ethernet_types is
 	-- Ethernet MAC layer address
 	constant MAC_ADDRESS_BYTES : positive := 6;
 	subtype t_mac_address is std_ulogic_vector((MAC_ADDRESS_BYTES * 8 - 1) downto 0);
+	-- Broadcast address
+	constant BROADCAST_MAC_ADDRESS : t_mac_address := x"FFFFFFFFFFFF";	
 
 	-- Speed constants
 	constant SPEED_1000MBPS    : t_ethernet_speed := "10";
