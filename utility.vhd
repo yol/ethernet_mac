@@ -20,18 +20,6 @@ package utility is
 end package;
 
 package body utility is
-	-- Position of the lowest bit of a given byte number
-	function byte_low_bound(byteno : in natural) return natural is
-	begin
-		return byteno * 8;
-	end function;
-	
-	-- Position of the highest bit of a given byte number
-	function byte_high_bound(byteno : in natural) return natural is
-	begin
-		return (byteno + 1) * 8 - 1;
-	end function;
-
 	function reverse_vector(vec : in std_ulogic_vector) return std_ulogic_vector is
 		variable result : std_ulogic_vector(vec'range);
 		alias rev_vec   : std_ulogic_vector(vec'reverse_range) is vec;
@@ -57,9 +45,9 @@ package body utility is
 	begin
 		-- Support both vector directions
 		if vec'ascending then
-			return vec(byte_low_bound(byteno) to byte_high_bound(byteno));
+			return vec(byteno * 8 to (byteno + 1) * 8 - 1);
 		else
-			return vec(byte_high_bound(byteno) downto byte_low_bound(byteno));
+			return vec((byteno + 1) * 8 - 1 downto byteno * 8);
 		end if;
 	end function;
 	
@@ -67,9 +55,9 @@ package body utility is
 	begin
 		-- Support both vector directions
 		if vec'ascending then
-			vec(byte_low_bound(byteno) to byte_high_bound(byteno)) := value;
+			vec(byteno * 8 to (byteno + 1) * 8 - 1) := value;
 		else
-			vec(byte_high_bound(byteno) downto byte_low_bound(byteno)) := value;
+			vec((byteno + 1) * 8 - 1 downto byteno * 8) := value;
 		end if;
 	end procedure;
 end package body;
