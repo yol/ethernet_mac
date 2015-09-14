@@ -63,6 +63,7 @@ ModelSim also works fine when you have the Xilinx libraries correctly imported. 
 
 Post-synthesis verification is also supported with the XC6SLX45-2FGG484 FPGA as sample target device. To get the simulation model, select the `test_instance_spartan6` top module in the ISE hierarchy view and run the "Generate Post-Place & Route Simulation Model" process under "Implement Design" / "Place & Route" (or Post-Translate/Post-Map if desired). It was only tested in ModelSim, but other simulators are expected to work as well. You only need the following files for post-synthesis simulation (and a correctly linked Xilinx ISE `simprim` VHDL library):
 
+ - `crc.vhd`
  - `crc32.vhd`
  - `ethernet_mac_tb.vhd`
  - `ethernet_types.vhd`
