@@ -6,7 +6,7 @@ The core fully works on Xilinx Spartan 6 family FPGAs only at the moment. It was
 
 The user interface is comprised of two FIFOs with a 8-bit data bus for packet transmission and reception, respectively.
 
-This page is a short overview of the features and usage of the MAC. More information on the design and implementation can be found in the design document at *(not yet published)*.
+This page is a short overview of the features and usage of the MAC. More information on the design and implementation can be found in the design document at https://github.com/pkerling/ethernet_mac_doc/raw/master/Thesis.pdf.
 
 Features
 -------
