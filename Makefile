@@ -8,7 +8,7 @@ all:
 	ghdl -m --work=ethernet_mac --workdir=ghdl -Pghdl/unisim -Pghdl/xilinxcorelib $(OPTS) ethernet_mac_tb
 	
 check: all
-	./ethernet_mac_tb --stack-max-size=20M --ieee-asserts=disable
+	ghdl -r --work=ethernet_mac --workdir=ghdl -Pghdl/unisim -Pghdl/xilinxcorelib $(OPTS) ethernet_mac_tb --ieee-asserts=disable $(CHECK_OPTS)
 	
 prepare:
 	mkdir -p ghdl/unisim ghdl/xilinxcorelib #ghdl/simprim
