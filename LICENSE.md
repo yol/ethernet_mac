@@ -15,10 +15,6 @@ modification, are permitted provided that the following conditions are met:
   contributors may be used to endorse or promote products derived from
   this software without specific prior written permission.
 
-* Neither the source code, nor any derivative product, may be used to operate
-  weapons, nuclear facilities, life support or other mission critical
-  applications where human life or property may be at stake or endangered.
-  
 * Neither the source code, nor any derivative product, may be used for military
   purposes.
 
